@@ -1,0 +1,3 @@
+.root { position: relative; width: 100%; height: 100%; min-height: 240px; outline: none; background: var(--pcv-bg); color: var(--pcv-text); font: 12px/1.4 var(--pcv-mono); }
+.hud { position: absolute; top: 8px; left: 8px; z-index: 1; white-space: pre; pointer-events: none; }
+.message { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }

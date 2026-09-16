@@ -1,0 +1,8 @@
+.panel { position: absolute; top: 8px; right: 8px; z-index: 1; width: 220px; padding: 10px 12px; background: var(--pcv-card); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); display: grid; gap: 8px; }
+.name { font-weight: 600; }
+.muted { color: var(--pcv-muted); }
+.bar { height: 4px; background: var(--pcv-surface); border-radius: 2px; overflow: hidden; }
+.fill { height: 100%; background: var(--pcv-accent); transition: width 0.1s linear; }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
+.row input[type=range] { width: 100%; grid-column: 1 / -1; accent-color: var(--pcv-accent); }
+.row select { grid-column: 1 / -1; background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; padding: 2px 4px; font: inherit; }
