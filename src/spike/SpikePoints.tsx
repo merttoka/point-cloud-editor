@@ -76,7 +76,7 @@ export function SpikePoints({ count, size }: { count: number; size: number }) {
       const hasTs = renderer.hasFeature('timestamp-query')
       const t0 = performance.now()
       await renderer.computeAsync(fc.computeNode)
-      const cpuMs = performance.now() - t0
+      const submitMs = performance.now() - t0   // computeAsync does not await GPU completion: encode+submit only
       let gpuMs: number | undefined
       if (hasTs) {
         gpuMs = await renderer.resolveTimestampsAsync(THREE.TimestampQuery.COMPUTE)
@@ -84,7 +84,7 @@ export function SpikePoints({ count, size }: { count: number; size: number }) {
       }
       if (cancelled) return
       const el = document.getElementById('compute')
-      if (el) el.textContent = `flags compute: ${fc.words} words, wall ${cpuMs.toFixed(2)} ms, gpu ${gpuMs?.toFixed(3) ?? 'n/a (no timestamp-query)'} ms`
+      if (el) el.textContent = `flags compute: ${fc.words} words, submit ${submitMs.toFixed(2)} ms, gpu ${gpuMs?.toFixed(3) ?? 'n/a (no timestamp-query)'} ms`
     })()
     return () => { cancelled = true }
   }, [gl, points])

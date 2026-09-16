@@ -5,9 +5,9 @@ import type { Node, StorageBufferNode } from 'three/webgpu'
 // One thread per u32 word (4 packed u8 flags). Thread-per-word: whole-word stores, no atomics.
 // Sets bit0 of a point's flag byte when quantized x > 32767 (east half).
 //
-// Returns the word instead of `-> void`: in three 0.186 FunctionCallNode.generate never emits a
-// void call as a statement (only ExpressionNode does), so a void wgslFn call compiles to an empty
-// kernel body. Consuming the u32 result with .toVar() forces `var = classifyEast(...)` into the flow.
+// Returns the word instead of `-> void`: in three 0.186 FunctionCallNode.generate never emits its
+// own statement line and StackNode.build ignores the void build result, so a void wgslFn call
+// compiles to an empty kernel body. Consuming the u32 result with .toVar() forces `var = classifyEast(...)` into the flow.
 // Storage pointer params work: three passes `&NodeBuffer_N.value` (WGSLNodeBuilder.getPropertyName).
 const classifyEast = wgslFn(/* wgsl */ `
   fn classifyEast(
