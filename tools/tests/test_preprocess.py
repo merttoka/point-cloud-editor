@@ -1,6 +1,9 @@
+import laspy
 import numpy as np
+import pytest
 
-from preprocess import QMAX, class_name, normalize_intensity, pack_attr, quantize_cloud
+from conftest import WKT_FTUS
+from preprocess import QMAX, FT_US, class_name, crs_string, normalize_intensity, pack_attr, quantize_cloud, resolve_units, units_from_wkt
 
 
 def test_quantize_round_trips_within_half_step():
@@ -39,3 +42,47 @@ def test_pack_attr_layout():
 def test_class_name_table_and_fallback():
     assert class_name(2) == "Ground" and class_name(6) == "Building"
     assert class_name(42) == "Class 42"
+
+
+def test_units_from_wkt_compound_ftus():
+    assert units_from_wkt(WKT_FTUS) == (FT_US, FT_US)
+
+
+def test_units_from_wkt_projcs_metres_no_vertical():
+    wkt = 'PROJCS["UTM 10N",GEOGCS["NAD83",UNIT["degree",0.0174532925199433]],UNIT["metre",1]]'
+    assert units_from_wkt(wkt) == (1.0, None)
+
+
+def test_units_from_wkt2_lengthunit():
+    wkt = ('PROJCRS["x",BASEGEOGCRS["NAD83",ANGLEUNIT["degree",0.0174532925199433]],'
+           'CS[Cartesian,2],AXIS["(E)",east,LENGTHUNIT["metre",1]],AXIS["(N)",north,LENGTHUNIT["metre",1]]]')
+    assert units_from_wkt(wkt) == (1.0, None)
+
+
+def test_resolve_units_wkt(synthetic_las):
+    u = resolve_units(laspy.read(synthetic_las["wkt_ftus"]).header)
+    assert (u.xy, u.z, u.source) == (FT_US, FT_US, "wkt")
+
+
+def test_resolve_units_geokeys(synthetic_las):
+    u = resolve_units(laspy.read(synthetic_las["geokeys"]).header)
+    assert (u.xy, u.z, u.source) == (FT_US, 1.0, "geokeys")
+
+
+def test_resolve_units_none_errors_without_override(synthetic_las):
+    h = laspy.read(synthetic_las["none"]).header
+    with pytest.raises(ValueError):
+        resolve_units(h)
+    u = resolve_units(h, units="m", z_units="m")
+    assert (u.xy, u.z, u.source) == (1.0, 1.0, "explicit")
+
+
+def test_resolve_units_partial_override_wins(synthetic_las):
+    u = resolve_units(laspy.read(synthetic_las["wkt_ftus"]).header, z_units="m")
+    assert (u.xy, u.z) == (FT_US, 1.0)
+
+
+def test_crs_string(synthetic_las):
+    assert crs_string(laspy.read(synthetic_las["wkt_ftus"]).header).startswith("COMPD_CS[")
+    assert crs_string(laspy.read(synthetic_las["geokeys"]).header) == "geokeys:ProjectedCSTypeGeoKey=none"
+    assert crs_string(laspy.read(synthetic_las["none"]).header) == "unknown"
