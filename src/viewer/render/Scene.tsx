@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
@@ -52,36 +52,63 @@ function CameraRig({ manifest, handle, api }: { manifest: Manifest; handle: Poin
   return <OrbitControls ref={controls} makeDefault enableDamping />
 }
 
+// r3f 9.7 `createRoot().configure()` snapshots `state = store.getState()` *before* `await glConfig(...)`, and
+// `<Canvas>` re-runs configure() from a dep-less layout effect (twice under StrictMode) before the first async
+// factory resolves. The second run therefore sees a stale snapshot with no gl/camera/scene, creates a second
+// WebGPURenderer (left at the 300×150 canvas default → depth-stencil size GPUValidationError every frame) and a
+// second PerspectiveCamera whose aspect never gets set (store size already matches, so the resize subscriber
+// skips updateCamera → NaN projection → black canvas). Make everything configure() creates idempotent: one
+// renderer promise per canvas, and stable camera/scene instances owned by <Scene>.
+const rendererByCanvas = new WeakMap<HTMLCanvasElement, Promise<THREE.WebGPURenderer>>()
+
+async function createRenderer(props: Record<string, unknown>, store: Store<ViewerState>, buffers: PointBuffers): Promise<THREE.WebGPURenderer> {
+  // Same adapter options as WebGPUBackend.init; request the adapter's own storage-binding limit (phase 0).
+  const adapter = await navigator.gpu.requestAdapter({
+    powerPreference: props.powerPreference as GPUPowerPreference,
+    featureLevel: 'compatibility',
+  })
+  if (!adapter) {
+    store.set({ status: 'error', error: 'No WebGPU adapter available.' })
+    throw new Error('No WebGPU adapter')
+  }
+  const renderer = new THREE.WebGPURenderer({
+    ...props,
+    antialias: false,
+    trackTimestamp: true,
+    requiredLimits: adapter ? { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize } : undefined,
+  })
+  await renderer.init()
+  renderer.info.autoReset = false   // Hud owns info.reset()
+  const maxBinding = adapter?.limits.maxStorageBufferBindingSize ?? 128 * 1024 * 1024
+  const compat = (renderer.backend as unknown as { compatibilityMode: boolean | null }).compatibilityMode
+  if (compat) store.set({ status: 'error', error: 'WebGPU compatibility mode not supported (no storage buffers in the vertex stage).' })
+  else if (buffers.count * 8 > maxBinding) store.set({ status: 'error', error: `Dataset too large for this GPU: ${buffers.count.toLocaleString()} points need ${(buffers.count * 8 / 2 ** 20).toFixed(0)} MiB in one storage binding, limit ${(maxBinding / 2 ** 20).toFixed(0)} MiB.` })
+  return renderer
+}
+
 export function Scene({ store, buffers, manifest, handle, centroid, api, hudEl }: {
   store: Store<ViewerState>; buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle
   centroid: [number, number, number]; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>
 }) {
+  const camera = useMemo(() => {
+    const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 10000)   // aspect set by r3f on the first setSize; CameraRig fits position/near/far
+    cam.up.set(0, 0, 1)
+    cam.position.set(1, -1, 0.8)
+    return cam
+  }, [])
+  const scene = useMemo(() => new THREE.Scene(), [])
   return (
     <Canvas
-      camera={{ position: [1, -1, 0.8], near: 0.1, far: 10000, fov: 50, up: [0, 0, 1] }}
-      gl={async (props) => {
-        // Same adapter options as WebGPUBackend.init; request the adapter's own storage-binding limit (phase 0).
-        const adapter = await navigator.gpu.requestAdapter({
-          powerPreference: props.powerPreference as GPUPowerPreference,
-          featureLevel: 'compatibility',
-        })
-        if (!adapter) {
-          store.set({ status: 'error', error: 'No WebGPU adapter available.' })
-          throw new Error('No WebGPU adapter')
-        }
-        const renderer = new THREE.WebGPURenderer({
-          ...(props as Record<string, unknown>),
-          antialias: false,
-          trackTimestamp: true,
-          requiredLimits: adapter ? { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize } : undefined,
-        })
-        await renderer.init()
-        renderer.info.autoReset = false   // Hud owns info.reset()
-        const maxBinding = adapter?.limits.maxStorageBufferBindingSize ?? 128 * 1024 * 1024
-        const compat = (renderer.backend as unknown as { compatibilityMode: boolean | null }).compatibilityMode
-        if (compat) store.set({ status: 'error', error: 'WebGPU compatibility mode not supported (no storage buffers in the vertex stage).' })
-        else if (buffers.count * 8 > maxBinding) store.set({ status: 'error', error: `Dataset too large for this GPU: ${buffers.count.toLocaleString()} points need ${(buffers.count * 8 / 2 ** 20).toFixed(0)} MiB in one storage binding, limit ${(maxBinding / 2 ** 20).toFixed(0)} MiB.` })
-        return renderer
+      camera={camera}
+      scene={scene}
+      gl={(props) => {
+        const canvas = props.canvas as HTMLCanvasElement
+        const cached = rendererByCanvas.get(canvas)
+        if (cached) return cached
+        const p = createRenderer(props as Record<string, unknown>, store, buffers)
+        p.catch(() => rendererByCanvas.delete(canvas))
+        rendererByCanvas.set(canvas, p)
+        return p
       }}
     >
       <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} centroid={centroid} />
