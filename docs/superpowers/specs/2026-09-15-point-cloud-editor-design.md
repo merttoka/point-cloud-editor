@@ -124,6 +124,18 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 5. **editing** — click/lasso select, ops, split, undo, export zip.
 6. **perf-docs** — HUD numbers, README table, screenshots/webm, ARCHITECTURE, portfolio blurb.
 
+## Amendments (phase 1–6 brainstorm, 2026-09-15)
+
+Per-phase specs live in `2026-09-15-phase-N-*-design.md` and refine this document. Where they differ, the following amendments win:
+
+- **A1 Demo hosting.** Both demo and full set are GitHub Release assets (`v0.1-data`); `public/data/` is gitignored; `npm run data:demo` / `data:full` (zero-dep node script) fetch them. Supersedes "Demo lives in `public/data/demo/`" in §1.
+- **A2 Click pick is a compute pass**, sharing the lasso projection kernel: dispatch 1 `atomicMin` on quantized depth among points within `r` px of the cursor, dispatch 2 writes the index of the point at that depth, 8-byte readback. Supersedes the ID render pass in §4.
+- **A3 One global `qpos` storage buffer** (`StorageBufferAttribute`, N × 2 u32) allocated at manifest load, chunks uploaded by range (`addUpdateRange`). Per-chunk Sprites read positions in the vertex stage via `qpos.element(userData('chunkBase') + instanceIndex)`; no per-chunk attribute. Compute passes run over the whole buffer. Supersedes the per-chunk `StorageInstancedBufferAttribute` in §2.
+- **A4 Hash table size** `T = nextPow2(max(1024, N / 8))`, not `2·N` (at 20M the latter costs ~540 MB for two tables). Collisions merge cells; the distance test filters. 20M GPU budget becomes ~380 MB including sorted indices, normals, AO and cell tables (Phase 4 spec table).
+- **A5 Flags sync** after a GPU select reads back the whole flags buffer (N bytes) into the CPU mirror, not an extracted bitset.
+- **A6 CPU copy.** The main-thread `Uint32Array` backing the `qpos` attribute is the only persistent CPU copy (160 MB at 20M). The loader worker keeps nothing; CPU benchmark and export receive a transient copy on demand. Supersedes "worker owns the CPU copy" in §2. Memory table: CPU = 160 MB main + 20 MB flags mirror + transient copies.
+- **A7 State + deps.** Viewer state is a hand-rolled store on `useSyncExternalStore` (no zustand). Python deps: `laspy[lazrs]`, `numpy`, `pytest` only (pyarrow, scipy dropped).
+
 ## Out of scope (YAGNI)
 
 Octree LOD, multi-tile mosaics, mesh reconstruction, server backend, mobile touch editing, WebGL fallback, split-box gizmo.
