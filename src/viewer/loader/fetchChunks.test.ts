@@ -89,9 +89,50 @@ describe('fetchAll', () => {
     const posted: [number, number[]][] = []
     const q = new ChunkQueue(chunks)
     q.setCamera([0, 0, 0])
-    await fetchAll('https://x.test/points.bin', q, { fetch: fullFetch, post: (i, w) => posted.push([i, Array.from(w)]), signal: new AbortController().signal, concurrency: 4 })
+    await fetchAll('https://x.test/points.bin', q, { fetch: fullFetch, post: (i, w) => posted.push([i, Array.from(w)]), signal: new AbortController().signal, concurrency: 4, totalBytes: 40 })
     expect(fetches).toBe(1)
     expect(posted.sort((a, b) => a[0] - b[0])).toEqual([[0, [0, 1, 10, 11, 20, 21]], [1, [30, 31, 40, 41]]])
+  })
+  it('full-fetch fallback: wrong body length (e.g. SPA index.html) rejects instead of posting garbage', async () => {
+    const wrongBody = new ArrayBuffer(12)
+    const badFetch = (async () => new Response(wrongBody, { status: 200 })) as unknown as typeof fetch
+    const q = new ChunkQueue(chunks)
+    q.setCamera([0, 0, 0])
+    await expect(
+      fetchAll('https://x.test/points.bin', q, { fetch: badFetch, post: () => {}, signal: new AbortController().signal, concurrency: 4, totalBytes: 40 }),
+    ).rejects.toThrow(/expected 40 bytes/)
+  })
+  it('retries a failed chunk once in the pool, then succeeds', async () => {
+    const log: string[] = []
+    const f = rangeFetch(log)
+    let chunk1Calls = 0
+    const flaky = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const range = new Headers(init?.headers).get('Range')!
+      if (range === 'bytes=24-39') {
+        chunk1Calls++
+        if (chunk1Calls === 1) throw new Error('network blip')
+      }
+      return f(input, init)
+    }) as unknown as typeof fetch
+    const q = new ChunkQueue(chunks)
+    q.setCamera([0, 0, 0])   // first (discovery) pop = chunk 0, pool then fetches chunk 1
+    const posted: number[] = []
+    await fetchAll('https://x.test/points.bin', q, { fetch: flaky, post: (i) => posted.push(i), signal: new AbortController().signal, concurrency: 1 })
+    expect(posted.sort()).toEqual([0, 1])
+    expect(chunk1Calls).toBe(2)
+  })
+  it('rejects when a pool chunk fails twice', async () => {
+    const f = rangeFetch([])
+    const alwaysFail = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const range = new Headers(init?.headers).get('Range')!
+      if (range === 'bytes=24-39') throw new Error('network blip')
+      return f(input, init)
+    }) as unknown as typeof fetch
+    const q = new ChunkQueue(chunks)
+    q.setCamera([0, 0, 0])
+    await expect(
+      fetchAll('https://x.test/points.bin', q, { fetch: alwaysFail, post: () => {}, signal: new AbortController().signal, concurrency: 1 }),
+    ).rejects.toThrow('network blip')
   })
   it('start.pos seeds the queue camera so the nearest chunk to pos loads first', async () => {
     // Mirrors loader.worker.ts: a 'start' message with pos calls queue.setCamera(pos) before fetchAll.

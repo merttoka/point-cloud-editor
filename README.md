@@ -5,7 +5,7 @@ Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, 
 ## Status
 Phase 2 done: streaming viewer on the demo set.
 
-2M: 240 fps (vsync) · 20M: 30 fps at 100% budget, 57 fps at 50% (M4 Max, Chromium, DPR 1, size 2 px).
+2M: 240 fps (vsync) · 20M: 30 fps at 100 % budget, 57 fps at 50 % (M4 Max, Chromium, DPR 1, size 2 px)
 
 ## Setup
 ```bash

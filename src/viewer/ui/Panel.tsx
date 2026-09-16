@@ -7,6 +7,7 @@ export function Panel({ handle }: { handle: PointMaterialHandle | null }) {
   const store = useViewerStore()
   const manifest = useStore((s) => s.manifest)
   const loaded = useStore((s) => s.loaded)
+  const error = useStore((s) => s.error)
   const budget = useStore((s) => s.budget)
   const pointSize = useStore((s) => s.pointSize)
   const colorMode = useStore((s) => s.colorMode)
@@ -26,6 +27,7 @@ export function Panel({ handle }: { handle: PointMaterialHandle | null }) {
       <div className={styles.name}>{manifest?.name ?? 'loading…'}</div>
       <div className={styles.muted}>{loaded.points.toLocaleString()} / {total.toLocaleString()} pts · {loaded.chunks}/{manifest?.chunks.length ?? 0} chunks</div>
       <div className={styles.bar}><div className={styles.fill} style={{ width: `${frac * 100}%` }} /></div>
+      {error && <div className={styles.muted}>{error}</div>}
       <label className={styles.row}><span>Budget</span><span>{Math.round(budget * 100)}%</span>
         <input type="range" min={0} max={100} step={1} value={Math.round(budget * 100)} onChange={(e) => store.set({ budget: Number(e.target.value) / 100 })} /></label>
       <label className={styles.row}><span>Point size</span><span>{pointSize}px</span>

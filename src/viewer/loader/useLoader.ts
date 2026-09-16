@@ -58,7 +58,11 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
         if (import.meta.env.DEV) console.debug(`[loader] chunk ${msg.index} (${manifest.chunks[msg.index].count} pts) ${n}/${manifest.chunks.length}`)
       } else if (msg.type === 'done') {
         store.set({ status: 'ready' })
+        api.sendCamera = undefined
         if (import.meta.env.DEV) (window as unknown as { __pcvUploadMs?: number[] }).__pcvUploadMs = uploadLog.current
+      } else if (n > 0) {
+        // Scene already has geometry on screen — don't tear it down, just surface the error.
+        store.set({ error: msg.message })
       } else {
         store.set({ status: 'error', error: msg.message })
       }

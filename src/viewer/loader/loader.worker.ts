@@ -12,10 +12,12 @@ ctx.onmessage = (e) => {
   queue = new ChunkQueue(msg.chunks)
   if (msg.pos) queue.setCamera(msg.pos)
   ac = new AbortController()
+  const totalBytes = msg.chunks.reduce((max, c) => Math.max(max, (c.offset + c.count) * 8), 0)
   fetchAll(msg.binUrl, queue, {
     fetch: (input, init) => fetch(input, init),
     post: (index, words) => ctx.postMessage({ type: 'chunk', index, words }, [words.buffer]),
     signal: ac.signal,
+    totalBytes,
   })
     .then(() => ctx.postMessage({ type: 'done' }))
     .catch((err: unknown) => { if (!ac?.signal.aborted) ctx.postMessage({ type: 'error', message: String(err) }) })

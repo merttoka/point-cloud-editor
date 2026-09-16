@@ -14,6 +14,7 @@ export interface LoaderIO {
   post(index: number, words: Uint32Array): void
   signal: AbortSignal
   concurrency?: number
+  totalBytes?: number
 }
 
 export function rangeHeader(c: ChunkRef): string {
@@ -36,6 +37,7 @@ export async function fetchAll(binUrl: string, queue: ChunkQueue, io: LoaderIO):
   const fetchChunk = async (c: ChunkRef): Promise<Response> => {
     let res = await fetchOne(c, url)
     if (!res.ok && url !== binUrl) {          // reused CDN url expired → retry from the origin once
+      await res.body?.cancel()
       url = binUrl
       res = await fetchOne(c, url)
     }
@@ -55,6 +57,9 @@ export async function fetchAll(binUrl: string, queue: ChunkQueue, io: LoaderIO):
   const res = await fetchChunk(first)
   if (res.status === 200 && !res.headers.get('Content-Range')) {
     const full = await res.arrayBuffer()
+    if (io.totalBytes !== undefined && full.byteLength !== io.totalBytes) {
+      throw new Error(`full fetch: expected ${io.totalBytes} bytes, got ${full.byteLength}`)
+    }
     io.post(first.index, sliceChunk(full, first))
     for (let c = queue.pop(); c && !io.signal.aborted; c = queue.pop()) io.post(c.index, sliceChunk(full, c))
     return
@@ -67,7 +72,14 @@ export async function fetchAll(binUrl: string, queue: ChunkQueue, io: LoaderIO):
       if (io.signal.aborted) return
       const c = queue.pop()
       if (!c) return
-      await postRange(c, await fetchChunk(c))
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await postRange(c, await fetchChunk(c))
+          break
+        } catch (e) {
+          if (attempt >= 1 || io.signal.aborted) throw e
+        }
+      }
     }
   })
   await Promise.all(workers)

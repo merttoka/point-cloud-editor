@@ -34,8 +34,11 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
       qpos.needsUpdate = true
     },
     dispose() {
-      // Node.dispose() only dispatches a 'dispose' event; the GPU buffers themselves are
-      // reclaimed when the renderer is disposed on <Canvas> unmount.
+      // Node.dispose() only dispatches a 'dispose' event. r3f 9.7's unmountComponentAtNode does
+      // NOT call gl.dispose() on a WebGPURenderer (it only calls renderLists?.dispose /
+      // forceContextLoss?.(), which don't exist on it) — so <Canvas> unmount never disposes the
+      // renderer, and these GPU buffers (N×8 + ceil(N/4)×4 B) plus the renderer itself live until
+      // the page unloads. Known limitation; revisit when the viewer supports remount/dataset switching.
       qposNode.dispose()
       flagsNode.dispose()
     },
