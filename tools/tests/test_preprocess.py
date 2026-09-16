@@ -135,7 +135,8 @@ def test_subsample_is_uniform_and_seeded(synthetic_las):
 def test_chunk_order_row_major_contiguous():
     rng = np.random.default_rng(0)
     xyz = rng.uniform(0, 3 * CELL, (30_000, 3))
-    order, chunks = chunk_order(xyz, xyz.min(axis=0), CELL, 1)
+    mn = xyz.min(axis=0)
+    order, chunks = chunk_order(xyz, mn, CELL, 1)
     assert sorted(order.tolist()) == list(range(30_000))
     assert sum(c.count for c in chunks) == 30_000
     off = 0
@@ -144,8 +145,8 @@ def test_chunk_order_row_major_contiguous():
         assert c.offset == off
         off += c.count
         sl = xyz[order[c.offset:c.offset + c.count]]
-        ix, iy = int(sl[0, 0] // CELL), int(sl[0, 1] // CELL)
-        assert np.all((sl[:, 0] // CELL) == ix) and np.all((sl[:, 1] // CELL) == iy)
+        ix, iy = int((sl[0, 0] - mn[0]) // CELL), int((sl[0, 1] - mn[1]) // CELL)
+        assert np.all((sl[:, 0] - mn[0]) // CELL == ix) and np.all((sl[:, 1] - mn[1]) // CELL == iy)
         key = iy * 3 + ix
         assert key > prev_key
         prev_key = key

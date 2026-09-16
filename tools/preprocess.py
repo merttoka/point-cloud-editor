@@ -181,20 +181,14 @@ class Chunk:
 def chunk_order(xyz: np.ndarray, bounds_min, cell: float, seed: int) -> tuple[np.ndarray, list[Chunk]]:
     mn = np.asarray(bounds_min, np.float64)
     mx = xyz.max(axis=0)
-    ix = np.floor(xyz[:, 0] / cell).astype(np.int64)
-    iy = np.floor(xyz[:, 1] / cell).astype(np.int64)
-
-    # Handle floating-point boundary artifacts: snap single points at max boundaries
-    max_ix_val = ix.max()
-    max_iy_val = iy.max()
-    # Check if there's exactly 1 point in the max-ix column
-    if (ix == max_ix_val).sum() == 1 and max_ix_val > ix.min():
-        ix[ix == max_ix_val] = max_ix_val - 1
-    # Check if there's exactly 1 point in the max-iy row
-    if (iy == max_iy_val).sum() == 1 and max_iy_val > iy.min():
-        iy[iy == max_iy_val] = max_iy_val - 1
-
-    nx = int(ix.max()) + 1
+    ix = np.floor((xyz[:, 0] - mn[0]) / cell).astype(np.int64)
+    iy = np.floor((xyz[:, 1] - mn[1]) / cell).astype(np.int64)
+    # Principled clipping: fold boundary points into last cell
+    ncx = max(1, int(np.ceil((mx[0] - mn[0]) / cell)))
+    ncy = max(1, int(np.ceil((mx[1] - mn[1]) / cell)))
+    ix = np.minimum(ix, ncx - 1)
+    iy = np.minimum(iy, ncy - 1)
+    nx = ncx
     key = iy * nx + ix
     order = np.argsort(key, kind="stable")
     sorted_keys = key[order]

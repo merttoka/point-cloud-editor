@@ -43,12 +43,13 @@ def write_synthetic(path: Path, crs: str, zero_intensity: bool = False, seed: in
     header.offsets = np.zeros(3)
     las = laspy.LasData(header)
     # wkt_ftus and geokeys store coords in US-survey-feet; scale by FT_US so 2×2 grid spans 64m cells not ~39m
+    # Rounding margin so the 2×2 grid at 64 m holds
     if crs in ("wkt_ftus", "geokeys"):
-        las.x = rng.uniform(0, 2 * CELL / FT_US, N)
-        las.y = rng.uniform(0, 2 * CELL / FT_US, N)
+        las.x = rng.uniform(0, (2 * CELL - 0.5) / FT_US, N)
+        las.y = rng.uniform(0, (2 * CELL - 0.5) / FT_US, N)
     else:
-        las.x = rng.uniform(0, 2 * CELL, N)
-        las.y = rng.uniform(0, 2 * CELL, N)
+        las.x = rng.uniform(0, 2 * CELL - 0.5, N)
+        las.y = rng.uniform(0, 2 * CELL - 0.5, N)
     las.z = rng.uniform(0, 50, N)
     las.intensity = (np.zeros(N, np.uint16) if zero_intensity
                      else rng.integers(0, 65535, N, dtype=np.uint16))
