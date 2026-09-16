@@ -21,6 +21,53 @@ Machine: Apple M4 Max, macOS 25.6.0, Chromium (Playwright MCP), Vite dev server 
 - **Type-deviation cast, carried from Task 4**: `userData('chunkBase', 'uint') as unknown as Node<'uint'>` in `pointMaterial.ts` — `@types/three` declares `userData()`'s return as `UserDataNode` (`Node<unknown>`), and the TSL `Node<T>` alias intersects to `{}` for arithmetic ops when `T` is `unknown`, hiding `.add`. The runtime object is proxy-wrapped with the operator regardless of the declared type, so the cast is purely to satisfy `tsc`; no runtime behaviour change.
 - **Concern**: driving the 20M/160 MB load through repeated `page.evaluate` round trips (one per ~200 ms sample, ~60 calls) crashed the Playwright browser tab once (`Error: Target crashed`); switching to a single in-page polling/rAF loop that returns one aggregated result on completion avoided it. Worth keeping in mind for any fuller full-set instrumentation in later tasks.
 
+### Browser verification (Task 8)
+
+Same machine/session as above, `phase-2-viewer` branch. Colour-mode/colormap selects and range inputs driven via native-setter + `dispatchEvent` (React-controlled inputs ignore plain `.value =`).
+
+**Screenshots** (`.playwright-mcp/`, gitignored):
+- `p2-t8-class.png` — 2M, Classification mode: buildings amber/orange, streets grey, small vegetation patches green, ground foreground brownish-tan, a few magenta specks (another class).
+- `p2-t8-intensity.png` — 2M, Intensity mode, Viridis: purple→teal→yellow by return strength; the ferris wheel (high-reflectivity metal) glows bright yellow-green against a mostly purple/teal scene.
+- `p2-t8-turbo.png` — 2M, Height mode, Turbo colormap: blue at ground level rising to green at building tops.
+- `p2-t8-grayscale.png` — 2M, Height mode, Grayscale colormap: dark-to-light by elevation, building tops brightest.
+- `p2-t8-size6.png` — 2M, point size 6px, budget 100%: visibly larger, blobbier dots vs. the 2px baseline (ferris wheel reads as rounded blobs, not fine dots).
+- `p2-t8-light.png` — `theme="light"` (temporary `App.tsx` edit, reverted after): white page background, light panel card, dark panel/HUD text.
+- `p2-t8-dark.png` — theme reverted to default: dark background/card/light text restored, confirming a clean HMR revert (no reload, HUD state preserved throughout).
+- `p2-t8-full-100.png` — full set (20M), budget 100%, size 2: denser point coverage than the 2M demo at the same view, renders correctly.
+- Diagnostic (see bug below): `p2-t8-initial-check.png`, `p2-t8-resize-check.png`, `p2-t8-fresh-nav-1280.png`.
+
+**HUD numbers** (`ms fps draws tris loaded budget`, all 2M unless noted):
+| Config | HUD |
+|---|---|
+| Height/Viridis baseline (100%, size 2) | `4.19 ms 239 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| Classification | `4.17 ms 240 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| Intensity/Viridis | `4.17 ms 240 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| Height/Turbo | `4.19 ms 239 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| Height/Grayscale | `4.17 ms 240 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| Budget 10% | `4.14 ms 241 fps draws 257 tris 400253 loaded 2,000,000/2,000,000 budget 10%` |
+| Point size 6 (budget 100%) | `4.19 ms 239 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| `theme="light"` | `4.12 ms 243 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| Dark (reverted) | `4.17 ms 240 fps draws 257 tris 4000001 loaded 2,000,000/2,000,000 budget 100%` |
+| **Full 20M, budget 100%, size 2** | `32.81 ms 30 fps draws 257 tris 40000001 loaded 20,000,000/20,000,000 budget 100%` |
+| **Full 20M, budget 50%** | `17.57 ms 57 fps draws 257 tris 20000127 loaded 20,000,000/20,000,000 budget 50%` |
+
+Budget-10% tris check (computed in-page from the manifest, one `browser_evaluate` call, one settle rAF): expected `2 × Σ ceil(count_i × 0.1) + 1 = 400,253`, actual HUD `tris = 400,253` — **exact match**. Budget-50% tris on the full set (`20,000,127`) is consistent with the same formula at 20M pts. Acceptance (≥~15 fps at 20M/DPR 1) met: 30 fps at 100%, 57 fps at 50%.
+
+**Console status**: 0 errors, 2 benign warnings (`THREE.WebGPURenderer: PCFSoftShadowMap has been removed. Using PCFShadowMap instead.`, repeated) through every step-1/2/3 mode, colormap, budget, point-size and theme change, and through both full-set (20M) reads at 100% and 50% budget.
+
+**Bug found — black canvas + continuous WebGPU depth-stencil `GPUValidationError` on a fresh page load.** A plain `page.goto('http://localhost:5173/')` (hard navigation, no prior resize) renders a **fully black canvas** while the HUD/store bookkeeping is otherwise correct throughout (`loaded 2,000,000/2,000,000`, `draws 257`, `tris 4000001`). The console fills with two `Uncaptured WebGPU GPUValidationError`s per frame, continuously, e.g.:
+```
+THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: The depth stencil attachment [TextureView of Texture "depthBuffer"] size (width: 300, height: 150) does not match the size of the other attachments' base plane (width: 1200, height: 1279).
+ - While validating depthStencilAttachment.
+ - While encoding [CommandEncoder "renderContext_1"].BeginRenderPass([RenderPassDescriptor]).
+ - While finishing [CommandEncoder "renderContext_1"].
+THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuffer from CommandEncoder "renderContext_1"] is invalid due to a previous error.
+ - While calling [Queue].Submit(...)
+```
+300×150 is the browser's default intrinsic `<canvas>` size — the WebGPURenderer's depth-stencil texture is created at that size and never resized to match the colour attachment, which *does* track the real container size (1200×1279 in one repro, 1280×800 in another — reproduced at two different viewport sizes, so it isn't tied to a specific size). Screenshots: `p2-t8-initial-check.png` (black, first repro) → `p2-t8-resize-check.png` (same scene, now correct, immediately after an explicit `page.setViewportSize(...)`, i.e. a real DOM `resize` event) → `p2-t8-fresh-nav-1280.png` (reproduced again on a second fresh `page.goto` at 1280×800: black, 197 accumulated errors over ~53 s, full trace in `.playwright-mcp/console-2026-09-16T11-12-53-376Z.log`, 25,380 `[ERROR]` lines from that one navigation, until a follow-up resize fixed it). An explicit resize after load — even to the *same* size the page already has — consistently fixes it and errors stop immediately. Both full-set (20M) navigations later fired `browser_resize` right after `page.goto` and before waiting for load, and saw 0 console errors both times, consistent with "an explicit resize event is needed to reconcile the depth-stencil texture; the initial mount-time layout alone isn't enough." This reproduces for a real user loading the page cold without ever resizing their window — not a Playwright artifact. Root cause not investigated further and no code was changed, per task instructions; likely in `Scene.tsx`'s `Canvas`/`WebGPURenderer` `gl` factory (async `renderer.init()` racing the R3F `ResizeObserver`-driven initial `setSize`, or a depth-stencil render target not included in that resize path). **Not previously reported** — Tasks 5 and 6 both got clean renders/`0 errors` on their first navigations; this may be timing-sensitive (async adapter/`renderer.init()` race) or session-state-sensitive (this session's browser window/viewport differed from theirs) rather than fully deterministic.
+
+**Secondary concern — one more Playwright tab crash.** The first attempt to wait for the 20M/160 MB load (a single `browser_evaluate` with an in-page `setTimeout` polling loop, per the Task 6 lesson) still crashed the tab (`Error: Target crashed`), despite that pattern being the one Task 6 found safe. Recovered by re-navigating; the second attempt used `browser_wait_for` with text-match (Playwright-native polling, not an in-page loop) plus an explicit `browser_resize` right after `page.goto`, and completed cleanly with 0 errors. So "single round trip" alone doesn't fully explain/prevent the crash risk from Task 6; this session had also accumulated ~370 MB across `.playwright-mcp/console-*.log` capture files from earlier tasks (one alone is 245 MB), which is a plausible contributing memory-pressure factor. Recommend `browser_wait_for` over an in-page `evaluate` loop for the 160 MB load in future tasks, and periodically clearing `.playwright-mcp/console-*.log` in long sessions.
+
 ## Phase 0 spike findings (three 0.186.0)
 
 Machine: Apple M4 Max, macOS 25.6.0, Chromium 153.0.8010.48 (Playwright), WebGPU adapter `apple` / `metal-3`, DPR 1, 240 Hz rAF cap (4.17 ms empty frame). Run: `?n=2000000&size=3|8`.
