@@ -31,3 +31,23 @@ Run: `?n=2000000&size=3`. Console: 0 errors (same two benign warnings as above).
 - `renderer.getArrayBufferAsync(flagsAttr)` works for readback/verification; it throws (`Cannot read properties of undefined (reading 'size')`) if the attribute was never bound by any pipeline yet.
 - `StrictMode` double-invokes `useMemo`; debug handles (`window.__spikePoints`) must be set from the effect on the committed object, not inside `useMemo`.
 - Type deviations: `StorageBufferNode` is generic in `@types/three` (`StorageBufferNode<'uvec2'>`); a `wgslFn` call is typed as untyped `Node` (no `.toVar`), cast to `Node<'uint'>`.
+
+### Scale (synthetic, M4 Max, Chromium 153.0.8010.48)
+
+Run: `?n=<N>&size=3`, headless Chromium via Playwright MCP, default camera then ~2 s programmatic orbit (camera position rotated around `OrbitControls.target` in 20 steps, `controls.update()` each step), HUD read after a 3–5 s settle. `synthetic gen ms` = `console.time/timeEnd('synthetic')` around `makeSyntheticCloud` in `SpikePoints.tsx`; two values because `<StrictMode>` double-invokes `useMemo`.
+
+| N | frame ms (default → post-orbit) | fps (default → post-orbit) | verts/frame (tris) | flags compute submit / gpu ms | synthetic gen ms (×2, StrictMode) | GPU mem MB (computed buffers) | GPU mem MB (proxy: GPU-process RSS delta) |
+|---|---|---|---|---|---|---|---|
+| 2M | 4.82 → 6.37 | 208 → 157 | 4,000,001 | 1.50 / 0.066 | 134.0, 136.4 | 17.2 (pos 16M + flags 2M) | n/a (not isolated; see note) |
+| 10M | 25.10 → 24.68 | 40 → 41 | 20,000,001 | 0.90 / 0.262 | 655.1, 736.3 | 85.8 (pos 80M + flags 10M) | baseline before 20M load |
+| 20M | 64.94 → 65.03 | 15 → 15 | 40,000,001 | 2.50 / **0.000 (compute failed, see below)** | 1354.9, 1330.3 | 171.7 (pos 160M + flags 20M) | +77.4 MB (GPU-process RSS: 230.9 MB → 310.2 MB, before→after 20M load) |
+
+Notes:
+- **GPU mem MB (computed)** = `positions N×8 B + flags ceil(N/4)×4 B` (≈ `N×9` bytes), geometry/uniforms negligible, per brief. Not measured VRAM.
+- **GPU mem MB (proxy)** = `ps -eo rss,command` RSS of the Chromium `--type=gpu-process` helper for the session's browser, before vs. after navigating to `?n=20000000` (10M was already loaded as the "before" state). Apple Silicon is unified memory, so process RSS is a loose upper-bound proxy, not a VRAM reading; Chrome's task manager GPU-memory column is unavailable headlessly, per brief. Renderer-process RSS for the tab itself stayed flat (495–500 MB) across the 10M→20M transition, consistent with the flags compute buffer failing to allocate rather than the position buffer growing further.
+- **20M flags-compute allocation failure**: `THREE.WebGPURenderer` throws 4 `Uncaptured WebGPU GPUValidationError`s on every frame once `n=20000000`: the `qpos` storage-buffer binding used by the compute pass is `160,000,000` B, exceeding the device's default `maxStorageBufferBindingSize` (`134,217,728` B = 128 MiB, the WebGPU spec default that three requests unless `requiredLimits` is set at `renderer.init()`). The adapter itself reports `maxStorageBufferBindingSize` / `maxBufferSize` = `4,294,967,292` B (`navigator.gpu.requestAdapter()` → `adapter.limits`), so this is a **default-limits ceiling, not a hardware ceiling** — fixable by requesting a higher `maxStorageBufferBindingSize` in `requiredLimits` when creating the device (Task 6+). Largest N the compute pass supports unmodified: `floor(134,217,728 / 8) = 16,777,216` (2^24) points, since positions are the larger of the two storage bindings (`N×8` B vs `flags` `N` B).
+  - The **render path is unaffected**: `qpos` is read in the vertex stage via `.toAttribute()` (an instanced vertex-buffer read, bound under `maxBufferSize`, not `maxStorageBufferBindingSize`), so 20M still renders correctly (`tris 40000001`, matches 2×N+1) — only the flags-compute-driven "east highlight" silently no-ops (flags buffer stays zero, so `isEast` is always false; base class colours still show).
+  - Tab did **not** crash: it kept accepting the orbit script and updating the HUD after the errors.
+- Console (2M, 10M): 0 errors, 2 benign warnings (same as above). Console (20M): the 4 `GPUValidationError`s above, 6 warnings total (2 benign + WebGPU's own duplicate `[Invalid BindGroup]`/`[Invalid CommandBuffer]` warning echoes), 0 crashes.
+- `performance.memory` at 20M (Chromium, post-orbit): `usedJSHeapSize` 278.8 MB / `totalJSHeapSize` 280.3 MB / `jsHeapSizeLimit` 4,395.6 MB — JS heap only, does not include GPU buffers.
+- Screenshot: `.superpowers/sdd/2026-09-15-phase-0-scaffold-spike/t5-20M.png` (not committed).

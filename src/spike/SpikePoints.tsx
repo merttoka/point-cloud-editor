@@ -8,7 +8,9 @@ import { buildFlagsCompute } from './flagsCompute'
 
 export function SpikePoints({ count, size }: { count: number; size: number }) {
   const points = useMemo(() => {
+    console.time('synthetic')
     const cloud = makeSyntheticCloud(count)
+    console.timeEnd('synthetic')
     const b = cloud.bounds
 
     // Positions: 2 u32 words per point, instanced. Same buffer is read by the flags compute pass.
