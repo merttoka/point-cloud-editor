@@ -54,3 +54,86 @@ Notes:
 - Screenshot: (screenshot taken during the spike; not in repo).
 - **Fix: `requiredLimits` raises the 20M compute ceiling, clamped to the adapter.** Default device (above) caps `maxStorageBufferBindingSize` at 128 MiB. `three` 0.186's `WebGPUBackend` forwards `parameters.requiredLimits` straight to `adapter.requestDevice()` (`WebGPUBackend.js:71,97,247`), and `WebGPURenderer`'s constructor forwards its own `parameters` object to the backend unchanged (`WebGPURenderer.js:75`) — so passing `requiredLimits` at `new THREE.WebGPURenderer({...})` construction is enough, no other plumbing needed. `SpikeApp.tsx` now calls `navigator.gpu.requestAdapter()` itself before constructing the renderer and passes `requiredLimits: { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize }` — i.e. the adapter's *own* reported max, not a hard-coded guess, so `requestDevice()` cannot fail from asking for more than the adapter supports; if `requestAdapter()` returns `null`, `requiredLimits` is omitted entirely and the renderer falls back to whatever default WebGPU picks. Only `maxStorageBufferBindingSize` is requested: the compute-pass error at 20M cited only that limit (128 MiB default), and the default `maxBufferSize` (256 MiB) already covers the 160 MB position buffer needed at 20M, so raising it had no evidence behind it and was dropped. This adapter's (M4 Max, Metal) reported `maxStorageBufferBindingSize` = **`4,294,967,292` B** (~4 GiB, via `navigator.gpu.requestAdapter().limits`), so the requested limit at runtime was that full value, not a fixed 1 GiB.
   - **Result at 20M, re-measured (post round-2 fix, adapter-clamped)**: 0 `GPUValidationError`s (console: 0 errors, 2 benign warnings, same as 2M/10M). `#compute`: `flags compute: 5000000 words, submit 1.10 ms, gpu 0.524 ms` (nonzero, real dispatch). HUD after settle: `65.54 ms  15 fps  draws 2  pts 0  tris 40000001` — frame time/fps unchanged from the render-only numbers in the table above (render path was never the bottleneck here; raising the limit only unblocked the compute pass). East half renders red (screenshot taken during the spike; not in repo), west half keeps class colours — flags buffer is now actually written.
+
+## Phase 1: data pipeline
+
+**Source tile**: Vancouver Open Data 2022 LiDAR, tile `491000_5458000` (downtown), `https://webtransfer.vancouver.ca/opendata/2022LiDAR/491000_5458000.zip`. Licence: Open Government Licence – Vancouver (`https://opendata.vancouver.ca/pages/licence/`). Imported as `data/raw/vancouver-downtown.las`, CRS UTM 10N metres (WKT VLR).
+
+### Point format (`points.bin`)
+
+8 bytes/point: 4 little-endian `uint16` words, `[x, y, z, packed]`.
+- `x/y/z`: quantized position. `quantize_cloud` maps the float64 metre AABB to `q = round((p − min) / (max − min) × 65535)` per axis, clamped to `QMAX = 65535`; a degenerate axis (`min == max`) quantizes to all zero. Dequantizing (`p ≈ min + q/65535 × (max − min)`) is accurate to within half a quantization step per axis.
+- `packed`: `intensity8 | (cls << 8)`. Intensity is the raw LAS `uint16` intensity normalized to `uint8` by p1–p99 clamping (`p99 == p1`, i.e. no intensity recorded → all zero, no divide-by-zero). Classification is the raw ASPRS `uint8` code, unclamped — `packed >> 8` recovers it directly from a `<u2` read of word 3.
+
+### Manifest schema (`manifest.json`)
+
+```json
+{ "version": 1, "name": "vancouver-downtown",
+  "source": "https://webtransfer.vancouver.ca/opendata/2022LiDAR/491000_5458000.zip",
+  "license": "Open Government Licence – Vancouver",
+  "crs": "<WKT string from the tile's WktCoordinateSystemVlr>", "units": "m",
+  "bounds": {"min": [491000.0, 5458000.0, -39.07], "max": [491999.999, 5458999.999, 398.347]},
+  "pointCount": 20000000, "bytesPerPoint": 8, "file": "points.bin",
+  "classMap": {"1": "Unclassified", "2": "Ground", "3": "Low Vegetation",
+               "5": "High Vegetation", "6": "Building", "7": "Low Point (Noise)"},
+  "chunks": [{ "offset": 0, "count": 78432, "bounds": {"min": [x, y, z], "max": [x, y, z]} }, "..."] }
+```
+`classMap` lists only classes present in that dataset (both the full and demo manifests carry all six classes above, matching the raw tile). `chunks[i].offset` is in points; `offset_{i+1} = offset_i + count_i`, contiguous and ascending from 0. Chunk `bounds` are tight per-chunk AABBs in metres. `file` resolves relative to the manifest's own URL.
+
+### Chunking
+
+64 m XY grid, anchored at the dataset's own `bounds.min` (not per-chunk). Cell index `(ix, iy) = floor((xy − min) / 64)`, clipped to `ceil(span / 64) − 1` per axis so a point exactly on the max edge folds into the last row/column instead of overflowing a phantom extra cell. Chunks are iterated row-major on `key = iy × nx + ix`; empty cells are omitted entirely (no zero-count entries in `manifest.chunks`). Within each chunk, point order is a seeded shuffle (`numpy.random.default_rng(seed).shuffle`) before writing — so any prefix of a chunk is a uniform random subsample of that chunk. That's what lets the viewer's point-budget slider truncate each chunk's read (fewer bytes fetched per chunk) without introducing spatial or class bias; verified by test: the first 10% of each chunk's classes match the full chunk's class proportions within ±3 pp. `--demo` does not requantize — it takes a seeded global permutation of the already-quantized full-set points and re-chunks, reusing the full set's `bounds` exactly, so full and demo manifests always share identical bounds.
+
+### Unit handling
+
+`resolve_units` resolves horizontal and vertical linear units *separately* (a State Plane tile can carry US-survey-foot XY with NAVD88-metre Z), in this order: explicit `--units`/`--z-units` flags win outright when both are given; otherwise a WKT VLR (`WktCoordinateSystemVlr.string`), searched in both `header.vlrs` **and** `header.evlrs` (the SF 2024 3DEP tile kept it in an EVLR only; `header.evlrs` is `None` on LAS 1.2, so both must be checked); otherwise GeoTIFF keys. The horizontal unit is the last `UNIT[`/`LENGTHUNIT[` keyword before any `VERT_CS[`/`VERTCRS[` block, the vertical unit is the first one after it. `_UNIT_RE = re.compile(r'(?<![A-Z])(?:LENGTH)?UNIT\["([^"]+)"')` matches only whole `UNIT[`/`LENGTHUNIT[` keywords — the negative lookbehind rejects `ANGLEUNIT[` (the GEOGCS degree unit embedded earlier in the same WKT), which would otherwise be picked up as a spurious linear unit. Absent a WKT VLR (older LAS 1.2/1.3 tiles carry GeoTIFF keys instead), `GeoKeyDirectoryVlr` keys are read: `3076` (`ProjLinearUnitsGeoKey`, horizontal) and `4099` (`VerticalUnitsGeoKey`, vertical), values `9001` metre / `9002` international foot / `9003` US survey foot. If neither source resolves a unit, `resolve_units` raises unless the corresponding `--units`/`--z-units` flag was given explicitly.
+
+This machinery was exercised, and ultimately not enough on its own: three USGS 3DEP tiles were vetted and rejected as the dataset source before Vancouver — `la_6482_1836a` (LA 2016), `sf_b23_05050270` (SF 2024), `nyc_sandy_18TWL835045` (NYC Sandy 2013). All three resolve units fine but carry only the 3DEP baseline classification set (1 Unclassified, 2 Ground, 7 Low Point/Noise, 9 Water, 17 Bridge Deck, 18 High Noise) — no building or vegetation classes at all — so none can pass the vetting rule (class 6 Building ≥ 3%, class 5 High Vegetation ≥ 3%, raw count ≥ 5M) regardless of correct unit resolution. Vancouver 2022 open data classifies building and vegetation directly and replaced 3DEP as the source (master spec amendment A10).
+
+### Raw tile
+
+51,494,885 points.
+
+`--stats` class table (Task 5):
+```
+points: 51,494,885
+bounds (m): min [491000.0, 5458000.0, -39.303] max [491999.999, 5458999.999, 398.347]
+unit source: wkt (xy ×1.000000, z ×1.000000)
+classes:
+    1 Unclassified                  6,720,654  13.05%
+    2 Ground                       12,081,486  23.46%
+    3 Low Vegetation                  102,377   0.20%
+    5 High Vegetation               7,807,894  15.16%
+    6 Building                     24,495,564  47.57%
+    7 Low Point (Noise)               286,910   0.56%
+intensity p1/p50/p99: 4 / 157 / 832
+```
+Load time (Task 5 `--stats` run, cold cache): 1.2 s (51,494,885 points).
+
+### Preprocess build and outputs
+
+**Preprocess build** (`--max-points 20000000 --demo 2000000 --cell-size 64 --name vancouver-downtown`): load 0.9 s (warm cache), `total 8.3 s` (script-reported), wall clock (zsh `time`) `6.51s user 1.20s system 91% cpu 8.409 total`. Well under the spec's 2-minute target for 20M points on an M4 Max.
+
+**Full dataset** (`data/processed/vancouver-downtown/`): 20,000,000 points, 256 chunks, `points.bin` 160,000,000 bytes.
+
+**Demo dataset** (`data/processed/vancouver-downtown/demo/`): 2,000,000 points, 256 chunks, `points.bin` 16,000,000 bytes.
+
+Both share bounds (m): min `[491000.0, 5458000.0, -39.07]` max `[491999.999, 5458999.999, 398.347]`.
+
+### Hosting
+
+Both datasets (`demo-*`, `full-*`) are flat GitHub Release assets on `v0.1-data`; `scripts/fetch-data.mjs` (`npm run data:demo`/`npm run data:full`) downloads and renames them into `public/data/<name>/{manifest.json,points.bin}`, skipping any file whose local size already matches the response `Content-Length`.
+
+`check_hosting.py` against `demo-points.bin` and `full-points.bin` (Task 7, verbatim outcome):
+- Redirect chain: `302 github.com/…/releases/download/v0.1-data/<asset>` → `206 release-assets.githubusercontent.com/…` (a signed, time-limited asset URL).
+- `range 206`: **PASS** (status 206). `content-range`: **PASS** (`bytes 0-15/16000000` / `bytes 0-15/160000000`, 16-byte body). `accept-ranges` (informational): **PASS** (`bytes`).
+- `cors hop 1` (the `github.com` 302) and `cors hop 2` (the `release-assets.githubusercontent.com` 206): **FAIL** on both — no `access-control-allow-origin` header on either hop, for any `Origin` sent.
+- Exit code: 1 (CORS failure blocks an otherwise-clean Range result).
+
+**Decision (user)**: keep the release as-is. The viewer loads `public/data/…` same-origin — the release URLs are only ever fetched by `scripts/fetch-data.mjs` during `npm run data:*`, never by the browser directly — so the missing `access-control-allow-origin` on the GitHub asset host does not block anything in-repo. Cross-origin hosting (e.g. a Lab-page embed that fetches the release URLs directly from the browser) is deferred to Phase 6.
+
+**Loader contract** (per spec, for Phase 2+): chunks are fetched via HTTP `Range` requests against `points.bin`, using each chunk's `offset`/`count` from the manifest. If a response comes back `200` instead of `206` (no `Content-Range` — some hosts ignore `Range` on small files or cache misses), the loader falls back to a single full fetch of `points.bin` and slices chunks out of the buffer locally, rather than treating it as an error.
+
+### Memory
+
+`load_cloud` holds the whole tile as float64 XYZ (24 B/point) plus `uint16` intensity and `uint8` classification until `quantize_cloud` converts XYZ to `uint16`; at the raw tile's 51,494,885 points that's ~1.2 GB for XYZ alone while loading — consistent with the spec's ~1 GB-peak-at-20M estimate and the sub-9 s wall time observed (no swapping).
