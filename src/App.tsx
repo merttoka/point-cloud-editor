@@ -1,5 +1,9 @@
-import { SpikeApp } from './spike/SpikeApp'
+import { PointCloudViewer } from './viewer/PointCloudViewer'
 
 export function App() {
-  return <SpikeApp />
+  return (
+    <div style={{ position: 'absolute', inset: 0 }}>
+      <PointCloudViewer manifestUrl="/data/demo/manifest.json" />
+    </div>
+  )
 }
