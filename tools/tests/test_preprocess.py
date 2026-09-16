@@ -92,3 +92,97 @@ def test_crs_string(synthetic_las):
     assert crs_string(laspy.read(synthetic_las["wkt_ftus"]).header).startswith("COMPD_CS[")
     assert crs_string(laspy.read(synthetic_las["geokeys"]).header) == "geokeys:ProjectedCSTypeGeoKey=none"
     assert crs_string(laspy.read(synthetic_las["none"]).header) == "unknown"
+
+
+import json
+from pathlib import Path
+
+from conftest import CELL, N
+from preprocess import chunk_order, load_cloud, normalize_intensity, pack_attr, quantize_cloud, subsample, write_dataset
+
+
+def _build(synthetic_las, tmp_path: Path, key="wkt_ftus", cell=CELL, seed=1):
+    if key in ("none", "zero_intensity"):        # these fixtures carry no CRS
+        cloud = load_cloud(synthetic_las[key], units="m", z_units="m")
+    else:
+        cloud = load_cloud(synthetic_las[key])
+    q, bounds = quantize_cloud(cloud.xyz)
+    packed = pack_attr(normalize_intensity(cloud.intensity), cloud.cls)
+    meta = {"name": "t", "source": "s", "license": "l", "crs": cloud.crs}
+    out = tmp_path / "out"
+    m = write_dataset(out, cloud.xyz, q, packed, cloud.cls, bounds, cell, seed, meta)
+    return cloud, q, packed, out, m
+
+
+def test_load_cloud_converts_feet_to_metres(synthetic_las):
+    ftus = load_cloud(synthetic_las["wkt_ftus"])
+    raw = laspy.read(synthetic_las["wkt_ftus"])
+    assert np.allclose(ftus.xyz[:, 0], raw.x * FT_US)
+    assert np.allclose(ftus.xyz[:, 2], raw.z * FT_US)
+    geo = load_cloud(synthetic_las["geokeys"])
+    raw2 = laspy.read(synthetic_las["geokeys"])
+    assert np.allclose(geo.xyz[:, 0], raw2.x * FT_US) and np.allclose(geo.xyz[:, 2], raw2.z)
+
+
+def test_subsample_is_uniform_and_seeded(synthetic_las):
+    c = load_cloud(synthetic_las["none"], units="m", z_units="m")
+    a, b = subsample(c, 50_000, 3), subsample(c, 50_000, 3)
+    assert len(a.xyz) == 50_000 and np.array_equal(a.xyz, b.xyz)
+    frac = np.mean(a.cls == 6)
+    assert abs(frac - 0.15) < 0.01
+
+
+def test_chunk_order_row_major_contiguous():
+    rng = np.random.default_rng(0)
+    xyz = rng.uniform(0, 3 * CELL, (30_000, 3))
+    order, chunks = chunk_order(xyz, xyz.min(axis=0), CELL, 1)
+    assert sorted(order.tolist()) == list(range(30_000))
+    assert sum(c.count for c in chunks) == 30_000
+    off = 0
+    prev_key = -1
+    for c in chunks:
+        assert c.offset == off
+        off += c.count
+        sl = xyz[order[c.offset:c.offset + c.count]]
+        ix, iy = int(sl[0, 0] // CELL), int(sl[0, 1] // CELL)
+        assert np.all((sl[:, 0] // CELL) == ix) and np.all((sl[:, 1] // CELL) == iy)
+        key = iy * 3 + ix
+        assert key > prev_key
+        prev_key = key
+        assert c.bounds["min"] == sl.min(axis=0).tolist() and c.bounds["max"] == sl.max(axis=0).tolist()
+
+
+def test_write_dataset_layout_and_manifest(synthetic_las, tmp_path):
+    cloud, q, packed, out, m = _build(synthetic_las, tmp_path)
+    data = np.fromfile(out / "points.bin", dtype="<u2").reshape(-1, 4)
+    assert data.shape[0] == N and (out / "points.bin").stat().st_size == N * 8
+    with open(out / "manifest.json") as f:
+        assert json.load(f) == m
+    assert m["version"] == 1 and m["units"] == "m" and m["bytesPerPoint"] == 8 and m["file"] == "points.bin"
+    assert m["pointCount"] == N and sum(c["count"] for c in m["chunks"]) == N
+    offs = [c["offset"] for c in m["chunks"]]
+    assert offs == sorted(offs) and offs[0] == 0
+    assert m["classMap"] == {"2": "Ground", "5": "High Vegetation", "6": "Building"}
+    assert len(m["chunks"]) == 4
+    # point 0 of the file is the first point of chunk 0 in the shuffled order
+    first = m["chunks"][0]
+    w = data[0]
+    assert (w[3] >> 8) in (2, 5, 6) and int(w[0]) <= QMAX
+    assert first["count"] > 5_000
+
+
+def test_shuffle_prefix_is_uniform(synthetic_las, tmp_path):
+    cloud, q, packed, out, m = _build(synthetic_las, tmp_path)
+    data = np.fromfile(out / "points.bin", dtype="<u2").reshape(-1, 4)
+    cls = (data[:, 3] >> 8).astype(np.uint8)
+    for c in m["chunks"]:
+        full = cls[c["offset"]:c["offset"] + c["count"]]
+        head = full[: max(1, c["count"] // 10)]
+        for k in (2, 5, 6):
+            assert abs(np.mean(head == k) - np.mean(full == k)) < 0.03
+
+
+def test_zero_intensity_fixture(synthetic_las, tmp_path):
+    cloud, q, packed, out, m = _build(synthetic_las, tmp_path, key="zero_intensity")
+    data = np.fromfile(out / "points.bin", dtype="<u2").reshape(-1, 4)
+    assert np.all((data[:, 3] & 0xFF) == 0)

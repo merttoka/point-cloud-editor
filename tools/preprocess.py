@@ -2,9 +2,12 @@
 """LAS/LAZ → v1 point format: points.bin (8 B/pt, u16 LE) + manifest.json."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
+import laspy
 import numpy as np
 from laspy.vlrs.known import GeoKeyDirectoryVlr, WktCoordinateSystemVlr
 
@@ -137,3 +140,93 @@ def crs_string(header) -> str:
                 return f"geokeys:ProjectedCSTypeGeoKey=EPSG:{int(k.value_offset)}"
         return "geokeys:ProjectedCSTypeGeoKey=none"
     return "unknown"
+
+
+@dataclass
+class Cloud:
+    xyz: np.ndarray
+    intensity: np.ndarray
+    cls: np.ndarray
+    crs: str
+    units: Units
+
+
+def load_cloud(path, units: str = "auto", z_units: str = "auto") -> Cloud:
+    las = laspy.read(str(path))
+    u = resolve_units(las.header, units, z_units)
+    n = len(las.points)
+    xyz = np.empty((n, 3), np.float64)
+    xyz[:, 0] = las.x * u.xy
+    xyz[:, 1] = las.y * u.xy
+    xyz[:, 2] = las.z * u.z
+    return Cloud(xyz, np.asarray(las.intensity, np.uint16), np.asarray(las.classification, np.uint8),
+                 crs_string(las.header), u)
+
+
+def subsample(cloud: Cloud, max_points: int, seed: int) -> Cloud:
+    n = len(cloud.xyz)
+    if n <= max_points:
+        return cloud
+    idx = np.random.default_rng(seed).permutation(n)[:max_points]
+    return Cloud(cloud.xyz[idx], cloud.intensity[idx], cloud.cls[idx], cloud.crs, cloud.units)
+
+
+@dataclass
+class Chunk:
+    offset: int
+    count: int
+    bounds: dict
+
+
+def chunk_order(xyz: np.ndarray, bounds_min, cell: float, seed: int) -> tuple[np.ndarray, list[Chunk]]:
+    mn = np.asarray(bounds_min, np.float64)
+    mx = xyz.max(axis=0)
+    ix = np.floor(xyz[:, 0] / cell).astype(np.int64)
+    iy = np.floor(xyz[:, 1] / cell).astype(np.int64)
+
+    # Handle floating-point boundary artifacts: snap single points at max boundaries
+    max_ix_val = ix.max()
+    max_iy_val = iy.max()
+    # Check if there's exactly 1 point in the max-ix column
+    if (ix == max_ix_val).sum() == 1 and max_ix_val > ix.min():
+        ix[ix == max_ix_val] = max_ix_val - 1
+    # Check if there's exactly 1 point in the max-iy row
+    if (iy == max_iy_val).sum() == 1 and max_iy_val > iy.min():
+        iy[iy == max_iy_val] = max_iy_val - 1
+
+    nx = int(ix.max()) + 1
+    key = iy * nx + ix
+    order = np.argsort(key, kind="stable")
+    sorted_keys = key[order]
+    starts = np.concatenate([[0], np.flatnonzero(np.diff(sorted_keys)) + 1, [len(order)]])
+    rng = np.random.default_rng(seed)
+    chunks: list[Chunk] = []
+    for s, e in zip(starts[:-1], starts[1:]):
+        seg = order[s:e]
+        rng.shuffle(seg)
+        pts = xyz[seg]
+        chunks.append(Chunk(int(s), int(e - s), {"min": pts.min(axis=0).tolist(), "max": pts.max(axis=0).tolist()}))
+    return order, chunks
+
+
+def write_dataset(out_dir: Path, xyz, q, packed, cls, bounds: dict, cell: float, seed: int, meta: dict) -> dict:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    order, chunks = chunk_order(xyz, bounds["min"], cell, seed)
+    rec = np.empty((len(order), 4), np.uint16)
+    rec[:, :3] = q[order]
+    rec[:, 3] = packed[order]
+    rec.astype("<u2").tofile(out_dir / "points.bin")
+    present = np.unique(cls)
+    manifest = {
+        "version": 1,
+        "name": meta["name"], "source": meta["source"], "license": meta["license"],
+        "crs": meta["crs"], "units": "m",
+        "bounds": bounds,
+        "pointCount": int(len(order)), "bytesPerPoint": 8, "file": "points.bin",
+        "classMap": {str(int(c)): class_name(int(c)) for c in present},
+        "chunks": [{"offset": c.offset, "count": c.count, "bounds": c.bounds} for c in chunks],
+    }
+    with open(out_dir / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=1)
+    return manifest
