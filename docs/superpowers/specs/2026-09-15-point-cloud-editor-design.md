@@ -117,8 +117,8 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 ## 7. Phases (one branch → merge to main each)
 
 0. **scaffold + spike** — Vite/R3F/WebGPU hello, repo, MIT, pinned deps. Spike proved: `uint32x2` packed attribute renders; sized points (Sprite quad mechanism, 4 verts/pt, cost at 2M/10M/20M synthetic); `wgslFn` compute writes a storage attribute Three then renders; timestamp query works; `requiredLimits` needed above 2^24 pts. Findings → ARCHITECTURE.md; this spec amended accordingly. **Done.**
-1. **preprocess** — tools, `--stats`, packed bin + offsets, demo dataset, tests. Verify Range + CORS on release asset.
-2. **viewer** — streaming, orbit, budget slider, point size, colormaps, flags buffer.
+1. **preprocess** — tools, `--stats`, packed bin + offsets, demo dataset, tests. Verify Range + CORS on release asset. **Done.**
+2. **viewer** — streaming, orbit, budget slider, point size, colormaps, flags buffer. **Done.**
 3. **edl** — post pass, params, toggle.
 4. **compute** — hash, normals, AO, timing panel, CPU benchmark + verify.
 5. **editing** — click/lasso select, ops, split, undo, export zip.

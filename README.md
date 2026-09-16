@@ -3,7 +3,9 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 1 done: Vancouver downtown dataset on release v0.1-data; preprocess tools in tools/.
+Phase 2 done: streaming viewer on the demo set.
+
+2M: 240 fps (vsync) · 20M: 30 fps at 100% budget, 57 fps at 50% (M4 Max, Chromium, DPR 1, size 2 px).
 
 ## Setup
 ```bash
@@ -44,10 +46,23 @@ tools/.venv/bin/pytest tools/tests
 ```
 Preprocess of the raw tile (51,494,885 points → 20M + 2M) takes 8.3 s on an M4 Max.
 
-## Spike params
-`?n=2000000&size=3` — point count (default 2M, max 30M), point size px (default 3, max 32).
+## Usage
+```bash
+npm run data:demo   # fetch the 2M demo set into public/data/demo/ (release asset)
+npm run dev         # Chrome with WebGPU → http://localhost:5173
+```
+`<PointCloudViewer manifestUrl="/data/demo/manifest.json" theme="dark" />` — `theme?: 'dark' | 'light'`, `className?`.
 
-## Spike results
+## Controls
+| Input | Action |
+|---|---|
+| drag / wheel | orbit / zoom (OrbitControls, +Z up) |
+| `F` | refit camera to dataset |
+| `H` | toggle HUD |
+| panel | point budget %, point size px, colour mode (height / intensity / class), colormap |
+Keys work only while the viewer has focus (click it first).
+
+## Phase 0 spike results
 Synthetic cloud, Apple M4 Max, Chromium 153 (headless Playwright), DPR 1, size 3 px, Sprite-quad path (4 verts/pt), `requiredLimits.maxStorageBufferBindingSize` = adapter limit. Full notes: `docs/ARCHITECTURE.md`.
 
 | N | frame ms (default → post-orbit) | fps | tris/frame | flags compute submit / gpu ms | synthetic gen ms | GPU mem MiB (computed buffers) | GPU mem MiB (proxy: GPU-process RSS delta) |

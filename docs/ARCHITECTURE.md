@@ -1,24 +1,74 @@
 # Architecture
 
-## Phase 2: viewer
+## Viewer (phase 2)
 
 Machine: Apple M4 Max, macOS 25.6.0, Chromium (Playwright MCP), Vite dev server on `localhost:5173`. Demo manifest: 2,000,000 pts / 256 chunks, 16 MB `points.bin`. Full manifest: 20,000,000 pts / 256 chunks, 160 MB `points.bin` (`npm run data:full`; already present for this task, 160,000,000-byte `points.bin` verified via `ls -l`).
 
-- **Loader-queue camera seeding (Task 6 fold-in)**: `LoaderIn`'s `'start'` now carries an optional `pos`; `useLoader` computes the same initial camera the scene fits to — `fitDistance(manifest, 50)` (exported from `Scene.tsx`) times `normalize(1, -1, 0.8)` — and sends it in the `start` message before the worker's first `fetchAll`, so `ChunkQueue.pop()` is sorted for that camera from chunk 1 instead of defaulting to `[0, 0, 0]`.
-  - First 5 chunk indices **before** seeding (default cam `[0,0,0]`, nearest to bounds centre, Task 5): `119, 135, 151, 118, 120`.
-  - First 5 chunk indices **after** seeding — demo (2M): `15, 14, 31, 30, 13`; full (20M): `13, 12, 15, 14, 31`. Both land in the large-x/small-y corner of the bounds (chunk centres x≈491,860–491,980 of a 491,000–492,000 range, y≈5,458,032–5,458,096 of a 5,458,000–5,459,000 range) — matches the seeded camera direction `(1, -1, 0.8)`.
-- **Per-chunk CPU upload cost** (`uploadRange`'s `array.set` + `addUpdateRange` only — not the GPU upload, which three does on the next render; measured via dev-only `window.__pcvUploadMs`, read with `browser_evaluate`):
+### Loader (`src/viewer/loader/`)
+
+`useLoader` fetches the manifest on the main thread, allocates `PointBuffers`/`PointMaterialHandle` sized to `manifest.pointCount`, then spawns `loader.worker.ts` (a module `Worker`) and posts a `start` message carrying `binUrl`, the per-chunk `ChunkRef[]` (centred `centre` for distance sort), and a seeded initial camera `pos` — the same `fitDistance(manifest, 50)` (exported from `Scene.tsx`) times `normalize(1, -1, 0.8)` the scene fits to — so `ChunkQueue.pop()` is sorted for that camera from chunk 1 instead of defaulting to `[0, 0, 0]`. First 5 chunk indices **before** seeding (default cam `[0,0,0]`, nearest to bounds centre, Task 5): `119, 135, 151, 118, 120`. After seeding — demo (2M): `15, 14, 31, 30, 13`; full (20M): `13, 12, 15, 14, 31`. Both land in the large-x/small-y corner of the bounds (chunk centres x≈491,860–491,980 of a 491,000–492,000 range, y≈5,458,032–5,458,096 of a 5,458,000–5,459,000 range) — matches the seeded camera direction `(1, -1, 0.8)`. The worker also accepts throttled `camera` messages (re-sorts the queue) and `dispose` (aborts in-flight fetches).
+
+Inside the worker, `fetchAll` (`fetchChunks.ts`) fetches the first chunk alone to decide the mode: a `206` + `Content-Range` response means Range is supported, and its `response.url` (post-redirect — e.g. past a GitHub Release `302`) is reused as the base URL for every subsequent chunk request instead of `binUrl`, skipping the redirect hop per chunk; if a request against that reused URL later fails (e.g. a time-limited signed asset URL expiring), the loader retries once against the original `binUrl` before giving up. A `200` without `Content-Range` means Range isn't supported: the loader fetches the whole file once and slices every remaining chunk out of it locally, rather than re-fetching per chunk. Once the first chunk resolves the mode, a pool of `concurrency` (default 4) workers drains the priority queue; each chunk's `ArrayBuffer` transfers back to the main thread (`postMessage(..., [words.buffer])`, zero-copy).
+
+Load timing (Task 5, demo 2M/256 chunks, warm local dev server on `localhost`): first non-zero `loaded` at **135 ms** (sample `1,362,301/2,000,000`; acceptance < 1 s), full `loaded 2,000,000/2,000,000` at **363 ms** (< 400 ms; acceptance < 3 s) — full demo load finishes well under half a second on localhost.
+
+### Buffers and upload path (`render/PointBuffers.ts`)
+
+One global `qpos` `StorageBufferAttribute` (`Uint32Array`, N×2 words) and one `flags` `StorageBufferAttribute` (`ceil(N/4)` words), allocated once at manifest load — not one attribute per chunk (spec A3). `uploadRange(offset, words)` does `qpos.array.set(words, offset*2)` then `qpos.addUpdateRange(offset*2, words.length)` + `needsUpdate = true`: a true partial-range copy, not a full-buffer re-upload (confirmed below). The main-thread `Uint32Array` backing `qpos` is the only persistent CPU copy of point data (spec A6); the loader worker keeps nothing once a chunk's buffer transfers out.
+
+- **Per-chunk CPU upload cost** (the `array.set` + `addUpdateRange` call only, not the GPU upload which three does lazily on the next render; measured via dev-only `window.__pcvUploadMs`, read with `browser_evaluate`):
   - 2M (256 chunks, ~7.8k pts/chunk): n=256, median 0.000 ms, max 0.100 ms.
   - 20M (256 chunks, ~78k pts/chunk): n=256, median 0.000 ms, max 0.200 ms.
   - Sub-millisecond at both scales, scaling with per-chunk byte size rather than total buffer size — confirms `uploadRange` does a true partial-range copy, not a full-buffer `.set()`.
+- **One-time first-upload frame**: the first `needsUpdate` after data starts arriving still pays one single large frame (upload + pipeline/bind-group creation, not per-chunk cost) — **216 ms** at 2M, **187 ms** at 20M; every later per-chunk upload folds into ordinary partial-range writes with no separate frame-time spike (a full-buffer 16 MB/160 MB re-upload per chunk would instead show ~256 repeated multi-ms spikes, not one).
+
+### Material (`render/pointMaterial.ts`)
+
+One shared `PointsNodeMaterial` across every chunk sprite. Global point index = `userData('chunkBase').add(instanceIndex)`, computed once per vertex; `qposNode.element(gi)` and `flagsNode.element(gi >> 2)` are **storage-buffer reads done in the vertex stage** (not compute) — bit-unpacked the same way compute would (`x/y/z` from `qpos`, `intensity`/`class` from its high word, hidden/deleted flag byte from `flags`). Colour `t` (chosen per `colorMode`: height/intensity/class) is derived from those same vertex-stage reads and wrapped in `vertexStage(t)` before the LUT `texture()` lookup — `vertexStage` pins the storage reads (and the value derived from them) to the vertex stage so the colour node evaluates once per vertex, not per fragment. `sizeNode = select(collapsed, 0, sizePx)`: hidden/deleted points (`FLAG_HIDDEN|FLAG_DELETED`) get size 0, collapsing the sprite quad to zero fragments (spec A8) rather than relying on off-screen translation, which isn't a reliable hide at f32 clip precision. LUT textures (`render/colormaps.ts`) are `DataTexture`s with `colorSpace = SRGBColorSpace` — values are authored as sRGB bytes and decoded on sample. The turbo polynomial's blue-channel `TB2` coefficient was corrected from `41.04993063` to `27.34824973` (commit `90c3934`) — the original value produced a wrong blue curve, caught by the colormap test threshold.
+
+### Chunk sprites (`render/ChunkSprites.tsx`)
+
+One `THREE.Sprite` per chunk, all sharing the one `PointsNodeMaterial`, but each gets its **own** `PlaneGeometry` purely to carry a manually-set `boundingBox`/`boundingSphere` from that chunk's manifest AABB (three can't derive point-cloud bounds itself). `Sprite.intersectsFrustum` is overridden to `frustum.intersectsObject(sprite)` — stock `Sprite` culling (`frustum.intersectsSprite`) checks a unit sphere at the object origin and ignores geometry bounds entirely (phase 0 finding: an off-screen chunk still drew `tris 1` instead of culling). Each sprite's instance `count = buffers.loaded[i] ? Math.ceil(c.count × budget) : 0` — 0 until that chunk's data has uploaded, otherwise the point-budget slider's fraction of the chunk's point count, recomputed in a `useLayoutEffect` so the change lands in the same frame r3f's rAF loop reads it (draw call count stays fixed; only instance count changes with budget).
+
+- **`userData('chunkBase')`**: worked. HUD shows `tris 4000001` at 2M (`2 × 2,000,000 + 1`) and `tris 40000001` at 20M (`2 × 20,000,000 + 1`) with the one shared `PointsNodeMaterial`, confirming the per-object `userData('chunkBase')` correctly offsets `instanceIndex` into the shared storage buffer per chunk (Task 5) — shipped with no per-chunk-material fallback needed.
+- **Draw calls at 100 % budget**: 257 at both 2M and 20M (256 chunk sprites + 1 renderer output blit).
+
+### Store (`state/store.ts`)
+
+Hand-rolled `createStore`/`useSyncExternalStore` store (no zustand, spec A7) — a plain object plus a `Set` of subscriber callbacks. `PointCloudViewer` creates **one store per viewer instance** via `useMemo` and provides it through `StoreContext`, so multiple viewers can coexist on a page without sharing state; `useViewerStore()` / `useStore(selector)` read it from inside that provider.
+
+### Theming (`theme/tokens.module.css`)
+
+`--pcv-*` custom properties on the viewer's root element consume Lab's own tokens (`--bg`, `--text-primary`, `--accent`, …) when embedded, falling back to a standalone dark palette when those aren't defined; a `[data-theme="light"]` block on the same root overrides the light variant. The viewer never reads Lab's token names directly, only its own `--pcv-*` layer, keeping it copy-paste embeddable per spec.
+
+### Keys
+
+Keyboard shortcuts (`F` refit, `H` toggle HUD) are bound via `onKeyDown` on the viewer's root `<div tabIndex={0}>` only — nothing attached to `window`/`document` — so they're focus-scoped and never hijack the host page.
+
+### GPU lifetime
+
+`PointBuffers.dispose()` calls only `qposNode.dispose()`/`flagsNode.dispose()`, which each dispatch a `'dispose'` event — they do **not** free the underlying GPU buffers themselves. The GPU memory is reclaimed when the `WebGPURenderer` itself is disposed, which happens when `<Canvas>` unmounts (r3f owns that teardown). Matters for embedders that mount/unmount `PointCloudViewer` repeatedly: GPU memory is held until the whole `<Canvas>`, not just the point buffers, goes away.
+
+### Memory (20M)
+
+| | GPU | CPU |
+|---|---|---|
+| positions (`qpos`) | 160 MB (`N×8` B) | 160 MB (main-thread `Uint32Array`, spec A6) |
+| flags | 20 MB (`ceil(N/4)×4` B) | 20 MB (main-thread `Uint32Array` mirror) |
+
+No other persistent per-point CPU copy: the loader worker transfers each chunk's buffer out and keeps nothing.
+
+### Type deviations
+
+- `userData('chunkBase', 'uint') as unknown as Node<'uint'>` in `pointMaterial.ts` (carried from Task 4) — `@types/three` declares `userData()`'s return as `UserDataNode` (`Node<unknown>`), and the TSL `Node<T>` alias intersects to `{}` for arithmetic ops when `T` is `unknown`, hiding `.add`. The runtime object is proxy-wrapped with the operator regardless of the declared type, so the cast is purely to satisfy `tsc`; no runtime behaviour change.
+
+### Frame timing, streaming vs settled (Task 6)
+
 - **HUD frame ms, streaming vs settled** (rAF-timestamped trace from navigation, 1.5 s window):
   - 2M: ~19 frames at 3–5 ms (pre-data / empty scene) → one 37.9 ms warm-up frame → **one 216.5 ms outlier frame** → one 21.3 ms tail frame → steady 3.1–5.3 ms for the remaining ~280 frames (240 Hz rAF cap). A separate 200 ms-interval `__pcvUploadMs`-adjacent poll over 4 s post-load held flat at 4.08–4.18 ms. Whole demo load (256 chunks, 2M pts) finishes in well under 200 ms on localhost, so "streaming" and "first upload" are effectively the same few frames.
   - 20M: ~10 frames at 4–5 ms (pre-data) → 33.3 ms, **187.4 ms outlier frame**, 96 ms, 12.5 ms → steady ~29–34 ms/frame thereafter. `budget` hit 100 % at t≈385 ms into the run; a 250 ms-interval poll for ~2 s after that stayed in the same 29–34 ms band (GPU render cost at 20M pts / 40M tris, not upload cost — no further spikes).
   - Conclusion: the first `needsUpdate` pays one single-frame cost (≈190–220 ms depending on scale, evidently upload + pipeline/bind-group creation); every subsequent per-chunk upload is folded into ordinary partial-range writes and produces no separate frame-time spike. This matches "partial upload", not a 16 MB/160 MB full-buffer re-upload per chunk (which would show ~256 repeated multi-ms+ spikes, not one).
   - Both sets load fast enough on localhost (dev server, no real network latency) that a distinct "mid-stream" HUD-ms plateau, separate from settled state, could not be resolved by 200 ms-interval polling alone — only the rAF per-frame trace isolated the single long frame.
-- **`userData('chunkBase')`**: worked. HUD shows `tris 4000001` at 2M (`2 × 2,000,000 + 1`) and `tris 40000001` at 20M (`2 × 20,000,000 + 1`) with one shared `PointsNodeMaterial`, confirming the per-object `userData('chunkBase')` correctly offsets `instanceIndex` into the shared storage buffer per chunk (Task 5).
-- **Draw calls at 100 % budget**: 257 at both 2M and 20M (256 chunk sprites + 1 renderer output blit).
-- **Type-deviation cast, carried from Task 4**: `userData('chunkBase', 'uint') as unknown as Node<'uint'>` in `pointMaterial.ts` — `@types/three` declares `userData()`'s return as `UserDataNode` (`Node<unknown>`), and the TSL `Node<T>` alias intersects to `{}` for arithmetic ops when `T` is `unknown`, hiding `.add`. The runtime object is proxy-wrapped with the operator regardless of the declared type, so the cast is purely to satisfy `tsc`; no runtime behaviour change.
 - **Concern**: driving the 20M/160 MB load through repeated `page.evaluate` round trips (one per ~200 ms sample, ~60 calls) crashed the Playwright browser tab once (`Error: Target crashed`); switching to a single in-page polling/rAF loop that returns one aggregated result on completion avoided it. Worth keeping in mind for any fuller full-set instrumentation in later tasks.
 
 ### Browser verification (Task 8)
@@ -70,7 +120,7 @@ THREE.WebGPURenderer: Uncaptured WebGPU GPUValidationError: [Invalid CommandBuff
 
 ### Renderer factory under StrictMode (Task 8b)
 
-**Fixed** the black-canvas / per-frame `depthBuffer` 300×150 `GPUValidationError` bug reported above (commit after `c85f978`). Root cause, verified by instrumenting `Scene.tsx`: r3f 9.7 `createRoot().configure()` does `let state = store.getState()` *before* `await glConfig(defaultProps)`, and `<Canvas>` calls `configure()` from a dep-less layout effect, which StrictMode runs twice (mount → cleanup → mount) before the first async factory has resolved. Both runs see `state.gl == null`, so the factory ran 2× on the same canvas (counter: `[gl factory] 2`, `window.__renderers.length === 2`). The second run then finishes on its **stale zustand snapshot**: it creates a second `WebGPURenderer` (its `CanvasTarget` stays at the canvas default 300×150 because r3f's resize subscriber had already run `setSize` on the first one; the second becomes `state.gl` and does all the drawing → colour attachment at the real size, depth texture at 300×150 → the error every frame), a second `PerspectiveCamera(75, 0, …)` and a second `Scene`; its `state.setSize()` finds the store size already equal, so the subscriber never calls `updateCamera` on the new camera → `aspect = 0` → NaN projection matrix → black even with the renderer fixed. Any later resize event re-ran `updateCamera`/`setSize` on the live objects, which is why an explicit resize "fixed" it. Fix (`src/viewer/render/Scene.tsx`): make everything `configure()` creates idempotent — the renderer promise is cached per canvas in a `WeakMap<HTMLCanvasElement, Promise<WebGPURenderer>>` (factory still invoked 2× under StrictMode, one renderer), and `<Canvas>` gets stable `camera`/`scene` instances from `useMemo` instead of an options object, so the second run sets the same objects. Verified with Playwright: fresh nav at 1280×800, 1200×1279, 800×600 → 0 console errors (2 benign warnings), points visible, HUD `tris 4000001`; live resize 1280×800 → 900×700 follows with 0 errors. Not a three.js bug; alternatives ruled out: `setSize` before `init()` (`_initialized` guard) — both renderers were initialised; `antialias`/`requiredLimits` — unchanged.
+**Fixed** the black-canvas / per-frame `depthBuffer` 300×150 `GPUValidationError` bug reported above (commit after `c85f978`). Root cause, verified by instrumenting `Scene.tsx`: r3f 9.7 `createRoot().configure()` does `let state = store.getState()` *before* `await glConfig(defaultProps)`, and `<Canvas>` calls `configure()` from a dep-less layout effect, which StrictMode runs twice (mount → cleanup → mount) before the first async factory has resolved. Both runs see `state.gl == null`, so the factory ran 2× on the same canvas (counter: `[gl factory] 2`, `window.__renderers.length === 2`). The second run then finishes on its **stale zustand snapshot**: it creates a second `WebGPURenderer` (its `CanvasTarget` stays at the canvas default 300×150 because r3f's resize subscriber had already run `setSize` on the first one; the second becomes `state.gl` and does all the drawing → colour attachment at the real size, depth texture at 300×150 → the error every frame), a second `PerspectiveCamera(75, 0, …)` and a second `Scene`; its `state.setSize()` finds the store size already equal, so the subscriber never calls `updateCamera` on the new camera → `aspect = 0` → NaN projection matrix → black even with the renderer fixed. Any later resize event re-ran `updateCamera`/`setSize` on the live objects, which is why an explicit resize "fixed" it. Fix (`src/viewer/render/Scene.tsx`): make the renderer, camera, and scene idempotent — the renderer promise is cached per canvas in a `WeakMap<HTMLCanvasElement, Promise<WebGPURenderer>>` (factory still invoked 2× under StrictMode, one renderer), and `<Canvas>` gets stable `camera`/`scene` instances from `useMemo` instead of an options object, so the second run sets the same objects. Verified with Playwright: fresh nav at 1280×800, 1200×1279, 800×600 → 0 console errors (2 benign warnings), points visible, HUD `tris 4000001`; live resize 1280×800 → 900×700 follows with 0 errors. Not a three.js bug; alternatives ruled out: `setSize` before `init()` (`_initialized` guard) — both renderers were initialised; `antialias`/`requiredLimits` — unchanged.
 
 ## Phase 0 spike findings (three 0.186.0)
 
