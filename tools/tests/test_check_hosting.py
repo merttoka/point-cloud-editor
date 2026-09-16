@@ -1,4 +1,4 @@
-from check_hosting import Hop, evaluate
+from check_hosting import Hop, evaluate, walk
 
 ORIGIN = "https://example.com"
 
@@ -35,3 +35,10 @@ def test_evaluate_accepts_echoed_origin():
     hops = _ok_chain()
     hops[1].headers["access-control-allow-origin"] = ORIGIN
     assert all(ok for _, ok, _ in evaluate(hops, ORIGIN))
+
+
+def test_walk_handles_dns_failure_without_crashing():
+    hops = walk("https://this-host-does-not-exist.invalid/x", ORIGIN)
+    assert len(hops) == 1 and hops[0].status == 0
+    res = dict((name, ok) for name, ok, _ in evaluate(hops, ORIGIN))
+    assert res["range 206"] is False

@@ -39,6 +39,9 @@ def walk(url: str, origin: str, max_hops: int = 10) -> list[Hop]:
                 url = urllib.parse.urljoin(url, headers["location"])
                 continue
             return hops
+        except urllib.error.URLError as e:
+            hops.append(Hop(url, 0, {"x-error": str(e.reason)}, 0))
+            return hops
     return hops
 
 
