@@ -135,6 +135,8 @@ Per-phase specs live in `2026-09-15-phase-N-*-design.md` and refine this documen
 - **A5 Flags sync** after a GPU select reads back the whole flags buffer (N bytes) into the CPU mirror, not an extracted bitset.
 - **A6 CPU copy.** The main-thread `Uint32Array` backing the `qpos` attribute is the only persistent CPU copy (160 MB at 20M). The loader worker keeps nothing; CPU benchmark and export receive a transient copy on demand. Supersedes "worker owns the CPU copy" in §2. Memory table: CPU = 160 MB main + 20 MB flags mirror + transient copies.
 - **A7 State + deps.** Viewer state is a hand-rolled store on `useSyncExternalStore` (no zustand). Python deps: `laspy[lazrs]`, `numpy`, `pytest` only (pyarrow, scipy dropped).
+- **A8 Hidden/deleted points collapse the quad**, `sizeNode = 0`, instead of "vertex moved outside clip" (§2). A point pushed to a huge coordinate projects to a finite vanishing point (`clip.xy / clip.w` stays bounded) and is only culled when it lands behind the camera or beyond the far plane in f32, so it is not a reliable hide. A zero-size sprite quad rasterises no fragments regardless of camera. (Spec review, 2026-09-15.)
+- **A9 Compute dispatch.** three 0.186 already splits a numeric `.compute(N, [64])` count above `maxComputeWorkgroupsPerDimension` (65,535) into a 2D dispatch and linearises `instanceIndex` across `globalId.xyz` (`WGSLNodeBuilder` compute prologue, `WebGPUBackend.compute`). Kernels use `instanceIndex` with an `i ≥ N` guard; no hand-rolled 2D indexing (Phase 4 spec). (Spec review, 2026-09-15.)
 
 ## Out of scope (YAGNI)
 

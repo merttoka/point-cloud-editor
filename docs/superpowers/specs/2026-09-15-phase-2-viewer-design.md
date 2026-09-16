@@ -2,7 +2,7 @@
 
 Date: 2026-09-15
 Status: approved (brainstorm)
-Parent: `2026-09-15-point-cloud-editor-design.md` §2, §7.2 (amendments A3, A6, A7 apply)
+Parent: `2026-09-15-point-cloud-editor-design.md` §2, §7.2 (amendments A3, A6, A7, A8 apply)
 
 ## Goal
 
@@ -10,7 +10,7 @@ Parent: `2026-09-15-point-cloud-editor-design.md` §2, §7.2 (amendments A3, A6,
 
 ## Scope
 
-In: everything under `src/viewer/` listed below, `App.tsx` mounting the viewer on `/data/demo/manifest.json`, vitest + Playwright smoke, README usage/controls, ARCHITECTURE viewer sections.
+In: everything under `src/viewer/` listed below, `App.tsx` mounting the viewer on `/data/demo/manifest.json`, vitest + browser smoke via the Playwright MCP session (no Playwright dependency; master §6 "Manual", same as phase 0), README usage/controls, ARCHITECTURE viewer sections.
 Out: EDL (3), compute (4), editing (5), LOD, manual chunk visibility beyond frustum culling, touch gestures beyond what OrbitControls gives.
 
 ## Interfaces
@@ -51,20 +51,21 @@ interface ViewerState {
 
 ### Loader
 - Main: `fetchManifest` validates `version === 1`, `bytesPerPoint === 8`, chunks contiguous and summing to `pointCount`; then `PointBuffers.create(N)`; then spawns the worker (`new Worker(new URL('./loader.worker.ts', import.meta.url), { type: 'module' })`) with `{ binUrl, chunks: {offset,count}[] }`.
-- Worker: queue ordered by `chunkQueue` priority; camera position arrives as `{type:'camera', pos}` (main throttles to 100 ms) and re-sorts; concurrency 4; per chunk `fetch(binUrl, { headers: { Range: bytes=o*8-(o+c)*8-1 }, signal })`. A `200` without `Content-Range` aborts the queue and switches to one full fetch sliced locally. Each chunk posts `{type:'chunk', index, words: Uint32Array}` with the buffer transferred. `{type:'dispose'}` aborts everything. The worker keeps no copy: the main-thread attribute array is the CPU copy (A6).
+- Worker: queue ordered by `chunkQueue` priority; camera position arrives as `{type:'camera', pos}` (main throttles to 100 ms) and re-sorts; concurrency 4; per chunk `fetch(binUrl, { headers: { Range: bytes=o*8-(o+c)*8-1 }, signal })` (a single `bytes=a-b` Range is CORS-safelisted, no preflight). After the first response the worker fetches subsequent chunks from `response.url` (the post-redirect signed CDN URL) to skip the `302` per chunk; on a non-2xx from that URL it falls back to `binUrl` once. A `200` without `Content-Range` aborts the queue and switches to one full fetch sliced locally. Each chunk posts `{type:'chunk', index, words: Uint32Array}` with the buffer transferred. `{type:'dispose'}` aborts everything. The worker keeps no copy: the main-thread attribute array is the CPU copy (A6).
 - Main on chunk: `buffers.uploadRange(offset, words)` → store `loaded` → that chunk's sprite gets a non-zero `count`.
 
 ### GPU buffers (`PointBuffers`)
 - `qpos = new StorageBufferAttribute(new Uint32Array(N * 2), 2)`, node `storage(qpos, 'uvec2', N)`; vertex reads `qposNode.element(gi)` with `gi = userData('chunkBase','uint').add(instanceIndex)`. No per-chunk attribute (A3).
-- `flags = new StorageBufferAttribute(new Uint32Array(ceil(N / 4)), 1)`, zeroed; vertex reads `flags.element(gi >> 2) >> ((gi & 3) * 8) & 0xff`; bits hidden (1) or deleted (4) move the point to `vec3(1e30)` so it clips. Never `toReadOnly()`.
+- `flags = new StorageBufferAttribute(new Uint32Array(ceil(N / 4)), 1)`, zeroed; vertex reads `flags.element(gi >> 2) >> ((gi & 3) * 8) & 0xff`; bits hidden (1) or deleted (4) set `sizeNode = 0` so the quad is degenerate and rasterises no fragments (A8). Do **not** move the point to a huge position: a point at (1e30, …) projects to a finite vanishing point (`clip.xy / clip.w` stays bounded) and only leaves the frustum if it happens to fall behind the camera or exactly past the far plane in f32. Never `toReadOnly()`.
+- Vertex-stage storage reads need a **core** device: three requests the adapter with `featureLevel: 'compatibility'` but then asks for every adapter feature, including `core-features-and-limits`, so on the target machine the device is core (`WebGPUBackend.init`, `compatibilityMode = !device.features.has('core-features-and-limits')`). A compat-only device has `maxStorageBuffersInVertexStage = 0`; the renderer factory checks `renderer.backend.compatibilityMode` and sets `status: 'error'` ("WebGPU compatibility mode not supported") rather than rendering nothing.
 - `uploadRange(offset, words)`: `array.set(words, offset*2)`, `addUpdateRange(offset*2, words.length)`, `needsUpdate = true`. WebGPU attribute utils honour `updateRanges` (verified in `WebGPUAttributeUtils.updateAttribute`).
 - If `N × 8 > device.limits.maxStorageBufferBindingSize` → `status: 'error'` with a "dataset too large for this GPU" message (renderer factory already requests the adapter's limit).
 
 ### Material (`pointMaterial.ts`)
 `PointsNodeMaterial` on `Sprite`, `sizeAttenuation = false` (phase-0 mechanism).
 - Position: unpack `x, y, z` from the uvec2; `world = vec3(x,y,z) * dqScale + dqMinCentred` where `dqMinCentred = bounds.min - centroid` (world centred at the bounds centroid, camera target at the origin).
-- Size: `sizeNode = clamp(pointSize * refDist / -positionView.z, 1, 8)` px, `refDist` = camera fit distance. Perspective attenuation in px, `sizeAttenuation` stays off.
-- Colour: `t` = height `z_q / 65535`, intensity `(packed & 0xff) / 255`, or class `cls / 255`, chosen by a `mode` uniform; `colorNode = texture(lut, vec2(t, 0.5)).level(0)` (emits `textureSampleLevel`, valid in the vertex stage). `lut` is swapped by mode/colormap: continuous LUTs for height/intensity, the categorical ASPRS LUT for class.
+- Size: `sizeNode = select(hidden | deleted, 0, clamp(pointSize * refDist / -positionView.z, 1, 8))` px, `refDist` = camera fit distance. Perspective attenuation in px, `sizeAttenuation` stays off. `setupVertexSprite` multiplies the quad offset by `sizeNode`, so 0 collapses the quad.
+- Colour: `t` = height `z_q / 65535`, intensity `(packed & 0xff) / 255`, or class `cls / 255`, chosen by a `mode` uniform. **Everything derived from `gi` is wrapped in `vertexStage()`** (`three/tsl`; alias `varying`): `colorNode` runs in the fragment stage, and `instanceIndex` used there is auto-varyinged by `IndexNode.generate`, which would move the `qpos`/`flags` storage reads to the fragment stage (legal but per-fragment). So `tV = vertexStage(t)` and `colorNode = texture(lut, vec2(tV, 0.5))` (fragment-stage `textureSample`; `.level(0)` only if the sample itself is moved inside `vertexStage`). All four quad vertices carry the same `t`, so interpolation is exact even for class mode. `lut` is swapped by mode/colormap: continuous LUTs for height/intensity, the categorical ASPRS LUT for class. LUT `DataTexture`s get `colorSpace = SRGBColorSpace` (WebGPU format `rgba8unorm-srgb`, decoded on sample) because viridis/turbo/ASPRS values are sRGB; the renderer's output transform re-encodes.
 - Uniforms: `dqScale`, `dqMinCentred`, `pointSize`, `refDist`, `mode`; per-object `userData.chunkBase`.
 
 ### Chunk sprites
@@ -79,7 +80,7 @@ Per manifest chunk: `Sprite(material)`, own `PlaneGeometry(1,1)` (bounds live on
 ### UI, theme, keys
 - Panel (CSS module): name, loaded/total + progress bar, budget slider, point size slider, colour mode, colormap, HUD toggle.
 - HUD: phase-0 HUD generalised: frame ms EMA, fps, draws, loaded/total, budget %. `info.autoReset=false` in the renderer factory; HUD resets after reading.
-- Theme: `theme` prop sets `data-theme` on the viewer root. `tokens.module.css` defines `--pcv-bg`, `--pcv-surface`, `--pcv-card`, `--pcv-text`, `--pcv-text-2`, `--pcv-muted`, `--pcv-border`, `--pcv-accent`, `--pcv-font`, `--pcv-mono`, `--pcv-radius` as `var(--bg, #0a0a0a)` etc., i.e. Lab's tokens when embedded, own fallbacks standalone, with a `[data-theme="light"]` fallback set. No global CSS.
+- Theme: `theme` prop sets `data-theme` on the viewer root. `tokens.module.css` defines `--pcv-bg`, `--pcv-surface`, `--pcv-card`, `--pcv-text`, `--pcv-text-2`, `--pcv-muted`, `--pcv-border`, `--pcv-accent`, `--pcv-font`, `--pcv-mono`, `--pcv-radius` as `var(<lab-token>, <fallback>)` over Lab's actual token names (`lab/src/theme/tokens.css`): `--bg`, `--bg-surface`, `--bg-card`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border`, `--accent`, `--font-body`, `--font-mono`, `--radius` (dark fallbacks `#0a0a0a`, `#141414`, `#1a1a1a`, `#e0e0e0`, `#999`, `#666`, `#222`, `#BF1656`; light `#fcfcfc`, `#f5f5f5`, `#fff`, `#111`, `#444`, `#666`, `#e0e0e0`, `#BF1656`; radius `10px`). Lab's tokens win when embedded, own fallbacks standalone, with a `[data-theme="light"]` fallback set. No global CSS.
 - Keys: root `tabIndex={0}`, `onKeyDown` on the root only: `F` fit, `H` HUD. Nothing on `window`.
 - States: no WebGPU → message; manifest error → message; too large → message.
 
@@ -99,7 +100,7 @@ Per manifest chunk: `Sprite(material)`, own `PlaneGeometry(1,1)` (bounds live on
 - Partial upload via `updateRanges` on a storage attribute → measure; fallback: accept a one-time full upload on first update, then ranges.
 - ~256 sprites: verify draw-call count and that per-object uniforms don't reallocate bind groups each frame.
 - Main-thread `Uint32Array(N*2)` (160 MB at 20M) is now the only CPU copy; memory table in ARCHITECTURE updated (A6).
-- `Sprite` + `PointsNodeMaterial` `positionNode` with hidden points at `1e30` must not produce NaN in `setupVertexSprite`; use a large finite value.
+- Hidden points via `sizeNode = 0` (A8): confirm a zero-size quad emits no fragments and does not break `sizeNode`'s `clamp(…, 1, 8)` lower bound (the `select` sits outside the clamp).
 
 ## Tests
 

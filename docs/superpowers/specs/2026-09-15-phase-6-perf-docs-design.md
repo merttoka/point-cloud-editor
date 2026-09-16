@@ -21,7 +21,7 @@ Out: new viewer features, optimisation work (a regression found here becomes a s
 { loadedFraction(): number; frame(): { ms: number; fps: number; draws: number };
   orbit(steps = 20, ms = 2000): Promise<void>;      // scripted camera orbit around target, controls.update() per step
   setBudget(frac: number): void;                     // 0–1, drives point-budget slider
-  compute(): Promise<{ hashMs, normalsMs, aoMs }>;   // GPU timestamps
+  compute(): Promise<{ countMs, scanMs, scatterMs, normalsMs, aoMs, totalMs }>;   // GPU timestamps, one per Phase 4 pass
   cpuBench(n = 2_000_000): Promise<{ normalsMs, aoMs }>;
   verify(): Promise<{ medianDeg, maxDeg, aoMae }>;
   lasso(polyPx: [number, number][]): Promise<{ gpuMs, readbackMs, selected }>;

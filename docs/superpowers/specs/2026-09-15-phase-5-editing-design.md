@@ -2,7 +2,7 @@
 
 Date: 2026-09-15
 Status: approved (brainstorm)
-Parent: `2026-09-15-point-cloud-editor-design.md` §4, §7.5 (amendments A2 compute pick, A5 full flags readback apply)
+Parent: `2026-09-15-point-cloud-editor-design.md` §4, §7.5 (amendments A2 compute pick, A5 full flags readback, A8 size-0 hide, A9 dispatch apply)
 
 ## Goal
 
@@ -16,7 +16,7 @@ Out: box/plane gizmos, point translation or attribute editing, multi-selection s
 ## Interfaces
 
 ### Per-point flags
-u8 per point, packed 4 per u32 in the global flags storage buffer (Phase 2). Bits: `hidden = 1`, `selected = 2`, `deleted = 4`, `splitA = 8`, `splitB = 16`. The CPU `Uint8Array` mirror is the source of truth; every edit mutates the mirror then uploads only `[minIdx, maxIdx]` via the attribute's update range (mechanism verified in Phase 2). Vertex stage: `hidden | deleted` → position moved outside clip; `selected` → tinted accent colour; `splitA` / `splitB` → two distinct colours overriding the colormap.
+u8 per point, packed 4 per u32 in the global flags storage buffer (Phase 2). Bits: `hidden = 1`, `selected = 2`, `deleted = 4`, `splitA = 8`, `splitB = 16`. The CPU `Uint8Array` mirror is the source of truth; every edit mutates the mirror then uploads only `[minIdx, maxIdx]` via the attribute's update range (mechanism verified in Phase 2). Vertex stage: `hidden | deleted` → `sizeNode = 0` (degenerate quad, A8); `selected` → tinted accent colour; `splitA` / `splitB` → two distinct colours overriding the colormap.
 
 ### Layout
 ```
@@ -33,11 +33,11 @@ src/viewer/ui/LassoOverlay.tsx         # SVG polygon overlay over the canvas
 
 ### `project.wgsl` kernel family
 Shared prologue: read `qpos[i]`, dequantize with `dqMin`/`dqScale` uniforms (world centred at bounds centroid, as Phase 2), multiply by a `viewProj` uniform (`mat4`), perspective divide → screen px using `viewport` uniform. Points with `hidden | deleted` set return early.
-- **Pick** (`r = max(3 px, pointSize)`), two dispatches, one thread per point:
-  1. `pickDepth`: if `|screen − cursor| ≤ r`, `atomicMin(minDepth, u32(clipZ / clipW × 0xffffffff))`.
-  2. `pickIndex`: if within `r` and quantized depth `== minDepth`, `atomicMin(minIndex, i)`.
-  Readback: 8 bytes (`minDepth`, `minIndex`); `minIndex == 0xffffffff` means miss.
-- **Lasso**: polygon ≤ 256 screen-space vertices in a uniform array + `vertexCount`; even-odd point-in-polygon per point. Thread-per-word: each thread owns 4 consecutive points, reads the flags word once, tests each point, applies the mode, writes the whole word back (no atomics). Modes via a `mode` uniform: `replace` (clear `selected` everywhere first, then set inside), `add` (Shift: OR inside), `subtract` (Alt: AND-NOT inside). After dispatch: read back the full flags buffer (`N` bytes, 20 MB at 20M) into the CPU mirror (amendment A5).
+- **Pick** (`r = max(3 px, pointSize)`), two dispatches, one thread per point, over a 2-word `storage(attr, 'uint', 2).toAtomic()` buffer `pick = [minDepth, minIndex]` that the main thread resets to `0xffffffff` before each pick (write the attribute array, `needsUpdate = true`):
+  1. `pickDepth`: if `|screen − cursor| ≤ r`, `atomicMin(&pick[0], bitcast<u32>(clipZ / clipW))`. Depth in `[0, 1]` is a non-negative f32, whose bit pattern orders the same as its value, so the min is exact; `u32(depth × 0xffffffff)` is not (f32 has 24 mantissa bits, and `0xffffffff` is not representable).
+  2. `pickIndex`: if within `r` and `bitcast<u32>(clipZ / clipW) == atomicLoad(&pick[0])`, `atomicMin(&pick[1], i)` (same expression as pass 1, so bit-identical; elements of an atomic array can only be read through `atomicLoad`).
+  Readback: 8 bytes; `pick[1] == 0xffffffff` means miss.
+- **Lasso**: polygon ≤ 256 screen-space vertices in a small **storage** buffer (`StorageBufferAttribute(Float32Array(512), 2)`, `ptr<storage, array<vec2<f32>>, read_write>`; a uniform `array<vec2<f32>>` is illegal in WGSL, uniform arrays need a 16-byte element stride, and TSL's `uniformArray` pads to `vec4` and cannot be passed as a `wgslFn` pointer) + a `vertexCount` uniform; even-odd point-in-polygon per point. Thread-per-word: each thread owns 4 consecutive points, reads the flags word once, tests each point, applies the mode, writes the whole word back (no atomics). Modes via a `mode` uniform: `replace` (clear `selected` everywhere first, then set inside), `add` (Shift: OR inside), `subtract` (Alt: AND-NOT inside). After dispatch: read back the full flags buffer (`N` bytes, 20 MB at 20M) into the CPU mirror (amendment A5).
 
 ### Ops (`ops.ts`)
 All operate on the mirror over the affected range, then upload:
@@ -51,7 +51,7 @@ Each op records one undo command before mutating.
 Input: dequantized positions of selected points (mirror for the `selected` bit, main-thread `qpos.array` for positions, A6), uniformly sampled to ≤ 50k; runs on the main thread. RANSAC: 200 iterations, 3-point hypotheses, inlier threshold = 2 × mean spacing (`sqrt(areaXY / pointCount)` from the manifest, same estimate as Phase 4). Refine: PCA on inliers, normal = smallest eigenvector, centroid on plane. Returns `{ normal, d, inlierRatio }`; fewer than 3 selected points → no-op with a HUD message.
 
 ### Undo (`undo.ts`)
-Command = `{ minIdx, maxIdx, prevFlags: Uint8Array }` (dense slice of the mirror before the edit). Ring holds ≤ 30 commands **and** ≤ 256 MB of `prevFlags` bytes; pushing evicts oldest until both limits hold. Redo stack cleared on new push. Apply = swap current slice with stored slice, upload range. Shortcuts: Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z redo.
+Command = `{ minIdx, maxIdx, prevFlags: Uint8Array }` (dense slice of the mirror before the edit). Ring holds ≤ 30 commands **and** ≤ 256 MB of `prevFlags` bytes; pushing evicts oldest until both limits hold. Lasso, isolate, unhide-all and clear-selection touch the whole buffer, so at 20M each costs a 20 MB slice and the byte cap allows ~12 of them; expected, documented in README. Redo stack cleared on new push. Apply = swap current slice with stored slice, upload range. Shortcuts: Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z redo.
 
 ### Export (`export.ts`)
 Message to the loader worker: `{ type: 'export', words: qpos.array.slice(), flags: Uint8Array }` with both buffers transferred (one 160 MB copy at 20M, ~50 ms; the worker keeps nothing afterwards, A6). Worker compacts points whose `deleted` bit is clear into a new `points.bin` (same quantization bounds, one chunk, chunk bounds recomputed), builds `manifest.json` (`version: 1`, `source` = original + `#export`), zips both with `fflate` (`zipSync`, level 0 for the bin) and posts the blob back. Main thread triggers a download of `export.zip`. The zip contents re-open in the viewer by pointing `manifestUrl` at the extracted manifest.
@@ -71,7 +71,7 @@ Message to the loader worker: `{ type: 'export', words: qpos.array.slice(), flag
 
 ## Risks and spikes
 
-- **`atomicMin` on storage nodes**: verify `storage(...).toAtomic()` + `atomicMin` compile in a `wgslFn` kernel with `ptr<storage, atomic<u32>, read_write>`; fallback is a TSL `atomicFunc` node.
+- **`atomicMin` on storage nodes**: verify `storage(...).toAtomic()` + `atomicMin` compile in a `wgslFn` kernel with `ptr<storage, array<atomic<u32>>, read_write>` (three wraps atomic storage as `value: array<atomic<u32>>`, Phase 4 spike covers `atomicAdd`); fallback is a TSL `atomicFunc` node.
 - **Readback latency**: `renderer.getArrayBufferAsync` on a 20 MB buffer; measure at 20M. If > 100 ms, fall back to reading only the dirty range implied by the lasso's screen bounds (spec amendment).
 - **`viewProj` precision**: positions are centred at the bounds centroid (Phase 2), so float32 clip math matches the vertex stage; verify pick agreement at the far corners of the full set.
 - **Thread-per-word `replace` mode** clears `selected` across the whole buffer in the same pass; confirm no ordering hazard (each word owned by exactly one thread).

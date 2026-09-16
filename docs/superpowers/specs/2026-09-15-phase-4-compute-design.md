@@ -2,7 +2,7 @@
 
 Date: 2026-09-15
 Status: approved (brainstorm)
-Parent: `2026-09-15-point-cloud-editor-design.md` §3, §7.4 (amendments A3 global `qpos` buffer, A4 hash sizing apply)
+Parent: `2026-09-15-point-cloud-editor-design.md` §3, §7.4 (amendments A3 global `qpos` buffer, A4 hash sizing, A9 dispatch apply)
 
 ## Goal
 
@@ -53,12 +53,12 @@ Kernels are `wgslFn` strings with `ptr<storage, array<T>, read_write>` params; e
 
 ### Passes (dispatched in order by `pipeline.ts`, one `computeAsync` each, timestamp per pass)
 1. **count** — thread per point: `cell = floor((p − bounds.min) / radius)`, `key = hash(cx, cy, cz) & (T − 1)` (`hash = cx × 73856093 ^ cy × 19349663 ^ cz × 83492791`), `atomicAdd(cellStart[key], 1)`. Collisions merge cells; the neighbour distance test filters the extra candidates.
-2. **scan** — exclusive prefix sum over `cellStart[0..T]`, three kernels: block reduce (workgroup 256, one `u32` per block), scan of block sums (single workgroup, T/256 ≤ 16384 entries → looped), add-back. Result: `cellStart[c]` = first index of cell `c` in `sorted`, `cellStart[T]` = N. `cellCursor` = copy of `cellStart`.
+2. **scan** — exclusive prefix sum over `cellStart[0..T]`, three kernels (reduce-then-scan): block reduce (workgroup 256, one `u32` sum per block into `blockSums`), scan of `blockSums` (single workgroup, T/256 ≤ 16384 entries → looped), then per-block local exclusive scan seeded with the scanned block sum, written in place. The third kernel also writes `cellCursor[c] = cellStart[c]` (three has no public buffer-copy API). Result: `cellStart[c]` = first index of cell `c` in `sorted`, `cellStart[T]` = N.
 3. **scatter** — thread per point: `sorted[atomicAdd(cellCursor[key], 1)] = i`.
 4. **normals** — thread per point: visit the 27 cells around `p`, iterate `sorted[cellStart[c] .. cellStart[c+1])`, keep the `k` nearest within `radius` by register insertion sort (arrays of 16 `f32` + 16 `u32`), covariance of the kept neighbours, smallest eigenvector via Jacobi 3×3 (fixed 8 sweeps), orient toward +Z, oct-encode to `2 × u16` → `normals[i]`. Degenerate (< 3 neighbours, or smallest two eigenvalues equal within 1e-6) → `+Z`. The camera-facing flip (`dot(n, viewDir) < 0`) is done in the vertex shader, not stored.
 5. **ao** — thread per **word** (4 points): for each of the 4 points, decode `n`, count neighbours within `radius` with `dot(p_j − p, n) > eps`, `ao = 1 − count / total` (0 neighbours → 1), pack u8 → whole-word store `ao[w]`.
 
-Dispatch shape: workgroup size 64 for point-parallel kernels; at 20M that is 312,500 workgroups, above the 65,535 per-dimension limit, so `pipeline.ts` dispatches 2D (`ceil(sqrt(groups))` × `…`) and kernels derive `i = globalId.y × stride + globalId.x`, returning early when `i ≥ N`. Scan kernels use workgroup 256.
+Dispatch shape: workgroup size 64 for point-parallel kernels, `Fn(...)().compute(N, [64])`. At 20M that is 312,500 workgroups, above the 65,535 per-dimension limit; three 0.186 handles this itself (A9): `WebGPUBackend.compute` clamps X to 65,535 and adds a Y dimension for a numeric count, and the compute prologue defines `instanceIndex = globalId.x + globalId.y × (wgX × numWorkgroups.x) + …`, so kernels keep using `instanceIndex` with an `i ≥ N` guard (three also emits an early return from `count` when `allowEarlyReturns` is on). No hand-rolled 2D indexing. Scan kernels use workgroup 256. Buffers written by atomics (`cellStart`) are zeroed before each build by writing zeros into the attribute array and flagging `needsUpdate`.
 
 ### Timing
 `timing.ts` wraps each pass: `t0 = performance.now(); await renderer.computeAsync(node); submitMs = performance.now() − t0; gpuMs = await renderer.resolveTimestampsAsync(THREE.TimestampQuery.COMPUTE)`. "submit" is CPU encode + submit (does not await GPU completion); "gpu" is the timestamp delta (Metal quantises to ~0.066 ms). Falls back to `n/a` when `timestamp-query` is unavailable. Panel table rows: count, scan, scatter, normals, ao, **total**.
@@ -82,9 +82,9 @@ The worker holds no copy of `qpos` (A6): on Run, the main thread posts `{ type: 
 
 ## Risks and spikes
 
-- **Atomics through TSL**: `storage(attr, 'uint', T).toAtomic()` with `atomicAdd` inside `wgslFn` — spike first in the plan: a 1k-point count kernel, read back, compare to a CPU histogram. Fallback: TSL `atomicAdd(...)` node from `three/tsl` instead of raw WGSL for the two atomic kernels.
+- **Atomics through TSL**: `storage(attr, 'uint', T).toAtomic()` declares the buffer struct as `value: array<atomic<u32>>` (`WGSLNodeBuilder`, `isAtomic`), so the `wgslFn` param must be `ptr<storage, array<atomic<u32>>, read_write>` and the kernel calls `atomicAdd(&cellStart[key], 1u)` — spike first in the plan: a 1k-point count kernel, read back, compare to a CPU histogram. Fallback: TSL `atomicAdd(...)` node from `three/tsl` instead of raw WGSL for the two atomic kernels.
 - **Scan correctness** at T up to 2^22: vitest the CPU reference; GPU spike compares `cellStart` readback against it at T = 2^16 and 2^22.
-- **Dispatch limits**: 65,535 workgroups per dimension → 2D dispatch as specified. Verified: `WebGPUBackend.compute` takes `computeNode.dispatchSize` as `number | Array<number>`, so set `computeNode.dispatchSize = [gx, gy]`; the kernel still bounds-checks `i ≥ N`.
+- **Dispatch limits**: handled by three (A9); the spike verifies a 20M-thread kernel writes every index (readback of a `touched[N/4]` word buffer, all bits set).
 - **Readback size**: 80 MB `normals` + 20 MB `ao` via `getArrayBufferAsync` for Verify — only at the 2M cap (8 MB + 0.5 MB); never at 20M.
 - **Register pressure** in the normals kernel (32 registers for kNN + 3×3 Jacobi): if the compiler spills badly, reduce k to 12 (documented as a tunable).
 - **Hash collisions on dense tiles**: merged cells inflate candidate counts; the distance test keeps results correct, cost only.

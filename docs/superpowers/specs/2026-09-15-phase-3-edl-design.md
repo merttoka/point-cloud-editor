@@ -56,7 +56,8 @@ Params (uniforms): `radiusPx` 1–4, default 1.5; `strength` 0–4, default 1; `
 - Screenshots on the demo set before/after EDL show visible surface relief (roofs vs walls, tree crowns).
 - HUD frame ms at 20M, DPR 1, size 3 px: EDL on − EDL off ≤ 2.0 ms (report both).
 - No visible seams at chunk borders (the pass is screen-space; check a screenshot across a chunk boundary).
-- Toggle off → pixel-identical to the Phase 2 render (Playwright screenshot diff = 0).
+- Toggle off → matches the Phase 2 render within 1/255 per channel (Playwright screenshot diff; the scene now goes through a `HalfFloatType` intermediate and one output transform, so ±1 LSB rounding is expected, larger deltas mean a colour-space double-apply).
+- HUD `draws` with the pipeline = chunks + 2 (scene pass + the pipeline's output quad + the renderer's output blit); `tris` = `2 × visible + 2`. Document, do not "fix".
 - DPR 2: radius visually equal in CSS px to DPR 1 (offset scales with `dpr`).
 - Console clean (only the two benign warnings noted in ARCHITECTURE).
 

@@ -47,13 +47,13 @@ fetch.py --url URL                     # stream to data/raw/<basename>; write <b
 
 ### `preprocess.py`
 ```
-preprocess.py IN.laz OUT_DIR [--max-points N] [--cell-size M] [--demo N] [--units auto|m|ft] [--seed 1] [--stats]
+preprocess.py IN.laz OUT_DIR [--max-points N] [--cell-size M] [--demo N] [--units auto|m|ft|ftus] [--z-units auto|m|ft|ftus] [--seed 1] [--stats]
 ```
 Pipeline (all coordinates converted to metres first):
-1. Read with laspy (lazrs backend). Linear unit: `--units auto` searches the CRS VLR WKT for `US survey foot` / `foot` (string match, no pyproj); `ft` → multiply XYZ by 0.3048006096 (US survey) or 0.3048 (international, when WKT says `foot` without `US survey`). `--stats`: print count, bounds (native + metres), ASPRS class histogram with names, intensity p1/p50/p99, then exit.
+1. Read with laspy (lazrs backend). Linear units, horizontal and vertical resolved **separately** (State Plane ftUS horizontal with NAVD88 metres vertical exists in 3DEP): `--units auto` / `--z-units auto` look first for a WKT VLR (`WktCoordinateSystemVlr.string`, LAS 1.4 point formats 6–10 always carry one): horizontal from the `PROJCS`/`PROJCRS` `UNIT`, vertical from the `VERT_CS`/`VERTCRS` `UNIT`; string match `US survey foot` / `Foot_US` / `ftUS` → 1200/3937 m, `foot` / `Foot` → 0.3048 m, `metre` / `meter` → 1. If no WKT VLR (LAS 1.2/1.3 tiles carry GeoTIFF keys instead), read `GeoKeyDirectoryVlr.geo_keys`: key 3076 `ProjLinearUnitsGeoKey` (horizontal) and key 4099 `VerticalUnitsGeoKey` (vertical), values 9001 metre / 9002 international foot / 9003 US survey foot. Neither found → error unless `--units`/`--z-units` given explicitly; `--stats` reports which source was used. No pyproj. `--stats`: print count, bounds (native + metres), unit source, ASPRS class histogram with names, intensity p1/p50/p99, then exit.
 2. `--max-points N`: seeded random permutation, keep first N (uniform subsample).
 3. Global AABB (metres) → u16 quantization `q = round((p - min) / (max - min) * 65535)`, clamped. Degenerate axis → 0.
-4. Intensity u16 → u8 by p1–p99 normalisation, clamped. Classification u8 raw.
+4. Intensity u16 → u8 by p1–p99 normalisation, clamped; `p99 == p1` (tiles with no intensity) → all 0. Classification u8 raw.
 5. Chunking: 2D XY grid, cell `--cell-size` metres (default 64), cell `(ix, iy) = floor((xy - min) / cell)`; chunk order row-major `(iy, ix)`; empty cells omitted. Within each chunk a seeded shuffle, so any prefix is a uniform subsample of that chunk.
 6. Write `points.bin` (interleaved `[u16 x][u16 y][u16 z][u16 packed]`, little-endian) and `manifest.json` (below). `bytesPerPoint` fixed at 8.
 7. `--demo N`: take the first N of a seeded global permutation of the already-quantized points, keep the **same bounds** (no re-quantization), re-chunk, write to `OUT_DIR/demo/`.
@@ -72,7 +72,7 @@ Memory: float64 XYZ until quantized; ~1 GB peak at 20M. Target: 20M in under 2 m
 `classMap` lists only classes present. `chunks[i].offset` is in points; `offset_{i+1} = offset_i + count_i`. Chunk bounds are tight AABBs in metres. `file` is resolved relative to the manifest URL.
 
 ### `check_hosting.py URL`
-Follows redirects, then reports PASS/FAIL for: `Accept-Ranges: bytes` on HEAD; `GET Range: bytes=0-15` → 206 + `Content-Range`; `GET` with `Origin: https://example.com` → `access-control-allow-origin: *`. Prints the final resolved URL. Non-zero exit on any FAIL.
+Follows redirects manually (hop by hop, `Origin: https://example.com` on every request), then reports PASS/FAIL for: `GET Range: bytes=0-15` on the final URL → `206`, `Content-Range: bytes 0-15/<size>`, body length 16 (authoritative Range check; `Accept-Ranges: bytes` on HEAD is printed as informational only, CDNs often omit it on HEAD); `access-control-allow-origin: *` (or the echoed origin) on **every** hop including each `302`, since the browser applies the CORS check to redirect responses too, not only to the final one. Prints the redirect chain and the final resolved URL. Non-zero exit on any FAIL.
 
 ### `scripts/fetch-data.mjs`
 `npm run data:demo` / `npm run data:full`. Downloads `https://github.com/merttoka/point-cloud-editor/releases/download/v0.1-data/<name>-manifest.json` and `<name>-points.bin` into `public/data/<name>/{manifest.json,points.bin}`; skips files whose size already matches `Content-Length`. Release assets are flat, hence the `<name>-` prefix; the script renames on write.
@@ -98,13 +98,14 @@ Follows redirects, then reports PASS/FAIL for: `Accept-Ranges: bytes` on HEAD; `
 
 ## Tests (pytest, `tools/tests/test_preprocess.py`)
 
-Fixture: synthetic LAS written with laspy (seeded random points, classes 2/5/6 in known proportions, u16 intensities, one variant with a US-survey-foot WKT VLR).
+Fixture: synthetic LAS written with laspy (seeded random points, classes 2/5/6 in known proportions, u16 intensities; 200k points on a 2×2 cell grid so every chunk holds ~50k points; variants: US-survey-foot WKT VLR, GeoTIFF-key-only with 3076 = 9003 and 4099 = 9001 (ftUS horizontal, metre vertical), no CRS at all).
 - quantization error ≤ half a step per axis after dequantization
 - chunk counts sum to N; offsets contiguous, ascending; row-major cell order
 - manifest keys and types; `classMap` only present classes; `units == "m"`
-- feet variant: bounds converted to metres
+- feet variant: bounds converted to metres; GeoTIFF variant: XY scaled by 1200/3937, Z unscaled; no-CRS variant errors without `--units`
 - `--stats` prints the histogram and exits without writing files
-- shuffle-prefix uniformity: first 10% of each chunk has class proportions within ±2 pp of the chunk's
+- zero-intensity fixture → all intensities 0, no division warning
+- shuffle-prefix uniformity: first 10% of each chunk (≥ 5k points) has class proportions within ±3 pp of the chunk's (≈ 4σ at p = 0.5 for a 5k hypergeometric sample; ±2 pp on small chunks fails by chance)
 - `--demo` count and identical `bounds`
 - `--max-points` count
 - byte layout of point 0 equals `[x, y, z, intensity | class << 8]` as u16 little-endian
