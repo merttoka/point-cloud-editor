@@ -2,8 +2,11 @@
 """LAS/LAZ → v1 point format: points.bin (8 B/pt, u16 LE) + manifest.json."""
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -224,3 +227,88 @@ def write_dataset(out_dir: Path, xyz, q, packed, cls, bounds: dict, cell: float,
     with open(out_dir / "manifest.json", "w") as f:
         json.dump(manifest, f, indent=1)
     return manifest
+
+
+def stats(cloud: Cloud) -> dict:
+    codes, counts = np.unique(cloud.cls, return_counts=True)
+    n = len(cloud.cls)
+    p1, p50, p99 = np.percentile(cloud.intensity, [1, 50, 99])
+    return {
+        "count": n,
+        "bounds": {"min": cloud.xyz.min(axis=0).tolist(), "max": cloud.xyz.max(axis=0).tolist()},
+        "unitSource": cloud.units.source,
+        "unitFactors": {"xy": cloud.units.xy, "z": cloud.units.z},
+        "classes": {int(c): {"name": class_name(int(c)), "count": int(k), "pct": 100.0 * k / n} for c, k in zip(codes, counts)},
+        "intensity": {"p1": float(p1), "p50": float(p50), "p99": float(p99)},
+    }
+
+
+def format_stats(s: dict) -> str:
+    lines = [f"points: {s['count']:,}",
+             f"bounds (m): min {s['bounds']['min']} max {s['bounds']['max']}",
+             f"unit source: {s['unitSource']} (xy ×{s['unitFactors']['xy']:.6f}, z ×{s['unitFactors']['z']:.6f})",
+             "classes:"]
+    for code, c in sorted(s["classes"].items()):
+        lines.append(f"  {code:3d} {c['name']:<26} {c['count']:>12,} {c['pct']:6.2f}%")
+    i = s["intensity"]
+    lines.append(f"intensity p1/p50/p99: {i['p1']:.0f} / {i['p50']:.0f} / {i['p99']:.0f}")
+    return "\n".join(lines)
+
+
+def _default_meta(in_path: Path) -> dict:
+    meta = {"name": in_path.stem, "source": "", "license": ""}
+    sj = in_path.with_name(f"{in_path.stem}.source.json")
+    if sj.exists():
+        with open(sj) as f:
+            d = json.load(f)
+        meta.update({"name": d.get("name", meta["name"]), "source": d.get("url", ""), "license": d.get("license", "")})
+    return meta
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("input")
+    ap.add_argument("out_dir")
+    ap.add_argument("--max-points", type=int, default=None)
+    ap.add_argument("--cell-size", type=float, default=64.0, help="chunk cell size in metres")
+    ap.add_argument("--demo", type=int, default=None, help="also write a subsampled dataset of N points to OUT_DIR/demo")
+    ap.add_argument("--units", choices=["auto", "m", "ft", "ftus"], default="auto")
+    ap.add_argument("--z-units", choices=["auto", "m", "ft", "ftus"], default="auto")
+    ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--name"); ap.add_argument("--source"); ap.add_argument("--license")
+    ap.add_argument("--stats", action="store_true", help="print statistics and exit")
+    a = ap.parse_args(argv)
+
+    t0 = time.perf_counter()
+    try:
+        cloud = load_cloud(a.input, a.units, a.z_units)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    print(f"loaded {len(cloud.xyz):,} points in {time.perf_counter() - t0:.1f} s", file=sys.stderr)
+    if a.stats:
+        print(format_stats(stats(cloud)))
+        return 0
+
+    if a.max_points:
+        cloud = subsample(cloud, a.max_points, a.seed)
+    q, bounds = quantize_cloud(cloud.xyz)
+    packed = pack_attr(normalize_intensity(cloud.intensity), cloud.cls)
+    meta = _default_meta(Path(a.input))
+    for k in ("name", "source", "license"):
+        if getattr(a, k):
+            meta[k] = getattr(a, k)
+    meta["crs"] = cloud.crs
+    out = Path(a.out_dir)
+    m = write_dataset(out, cloud.xyz, q, packed, cloud.cls, bounds, a.cell_size, a.seed, meta)
+    print(f"wrote {out / 'points.bin'}: {m['pointCount']:,} points, {len(m['chunks'])} chunks", file=sys.stderr)
+    if a.demo:
+        sel = np.random.default_rng(a.seed + 1).permutation(len(q))[: a.demo]
+        d = write_dataset(out / "demo", cloud.xyz[sel], q[sel], packed[sel], cloud.cls[sel], bounds, a.cell_size, a.seed, meta)
+        print(f"wrote {out / 'demo' / 'points.bin'}: {d['pointCount']:,} points, {len(d['chunks'])} chunks", file=sys.stderr)
+    print(f"total {time.perf_counter() - t0:.1f} s", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

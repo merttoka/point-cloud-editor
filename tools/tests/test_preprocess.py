@@ -187,3 +187,49 @@ def test_zero_intensity_fixture(synthetic_las, tmp_path):
     cloud, q, packed, out, m = _build(synthetic_las, tmp_path, key="zero_intensity")
     data = np.fromfile(out / "points.bin", dtype="<u2").reshape(-1, 4)
     assert np.all((data[:, 3] & 0xFF) == 0)
+
+
+from preprocess import main, stats
+
+
+def test_stats_histogram(synthetic_las):
+    s = stats(load_cloud(synthetic_las["wkt_ftus"]))
+    assert s["count"] == N and s["unitSource"] == "wkt"
+    assert set(s["classes"]) == {2, 5, 6}
+    assert abs(s["classes"][6]["pct"] - 15.0) < 1.0
+    assert s["classes"][6]["name"] == "Building"
+    assert s["intensity"]["p99"] > s["intensity"]["p1"]
+
+
+def test_cli_stats_writes_nothing(synthetic_las, tmp_path, capsys):
+    rc = main([str(synthetic_las["wkt_ftus"]), str(tmp_path / "o"), "--stats"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "Building" in out and "unit source: wkt" in out
+    assert not (tmp_path / "o").exists()
+
+
+def test_cli_max_points_and_demo_same_bounds(synthetic_las, tmp_path):
+    out = tmp_path / "o"
+    rc = main([str(synthetic_las["wkt_ftus"]), str(out), "--max-points", "100000", "--demo", "20000",
+               "--cell-size", "64", "--name", "syn", "--source", "u", "--license", "l"])
+    assert rc == 0
+    full = json.load(open(out / "manifest.json"))
+    demo = json.load(open(out / "demo" / "manifest.json"))
+    assert full["pointCount"] == 100_000 and demo["pointCount"] == 20_000
+    assert full["bounds"] == demo["bounds"]
+    assert full["name"] == "syn" and full["source"] == "u" and full["license"] == "l"
+    assert (out / "demo" / "points.bin").stat().st_size == 20_000 * 8
+
+
+def test_cli_reads_source_json(synthetic_las, tmp_path):
+    src = synthetic_las["geokeys"]
+    (src.parent / f"{src.stem}.source.json").write_text(json.dumps({"url": "http://x/t.zip", "name": "tile-x", "license": "OGL"}))
+    out = tmp_path / "o2"
+    assert main([str(src), str(out)]) == 0
+    m = json.load(open(out / "manifest.json"))
+    assert (m["name"], m["source"], m["license"]) == ("tile-x", "http://x/t.zip", "OGL")
+
+
+def test_cli_no_crs_errors(synthetic_las, tmp_path, capsys):
+    rc = main([str(synthetic_las["none"]), str(tmp_path / "o3")])
+    assert rc == 2 and "--units" in capsys.readouterr().err
