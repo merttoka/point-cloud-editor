@@ -3,3 +3,4 @@ dist
 data/raw
 .DS_Store
 *.local
+.playwright-mcp/
