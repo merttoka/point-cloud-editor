@@ -2,11 +2,11 @@
 
 Date: 2026-09-15
 Status: approved (brainstorm)
-Parent: `2026-09-15-point-cloud-editor-design.md` §1, §7.1 (amendments A1, A6 apply)
+Parent: `2026-09-15-point-cloud-editor-design.md` §1, §7.1 (amendments A1, A6, A10 apply)
 
 ## Goal
 
-Turn one USGS 3DEP LAZ tile into the v1 point format + manifest, produce a full (≤20M) and a demo (2M) dataset, publish both as GitHub Release assets, and prove HTTP Range + CORS work from a browser against those assets.
+Turn one City of Vancouver LiDAR 2022 tile (A10) into the v1 point format + manifest, produce a full (≤20M) and a demo (2M) dataset, publish both as GitHub Release assets, and prove HTTP Range + CORS work from a browser against those assets.
 
 ## Scope
 
@@ -19,7 +19,7 @@ Out: any viewer code, multi-tile mosaics, reprojection between CRSs, LAS 1.4 ext
 ```
 tools/
   requirements.txt     # pinned exact: laspy[lazrs], numpy, pytest
-  fetch.py             # tile discovery + download
+  fetch.py             # tile discovery (open-data API) + zip import
   preprocess.py        # LAZ → points.bin + manifest.json (importable functions + CLI)
   check_hosting.py     # Range + CORS probe
   tests/test_preprocess.py
@@ -33,24 +33,20 @@ Venv: `python3 -m venv tools/.venv && tools/.venv/bin/pip install -r tools/requi
 
 ### `fetch.py`
 ```
-fetch.py --bbox W S E N [--limit 20]   # list LPC products: project, title, MB, URL, date
-fetch.py --url URL                     # stream to data/raw/<basename>; write <basename>.source.json
+fetch.py --list [--near E N] [--limit 20]   # tiles from the Vancouver open-data API, sorted by distance to a UTM 10N point
+fetch.py --import ZIP [--name NAME]         # extract the .las/.laz from a browser-downloaded zip → data/raw/<name>.<ext> + <name>.source.json
 ```
-- Discovery: `GET https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Lidar%20Point%20Cloud%20(LPC)&bbox=W,S,E,N&prodFormats=LAZ&max=<limit>`; print `items[].{title, sourceId, sizeInBytes, publicationDate, downloadURL}`.
-- Download: `urllib`, streamed, progress on stderr. `source.json` = `{ url, title, sourceId, fetched (ISO), license: "USGS 3DEP, public domain" }`.
-- Candidate bboxes (WGS84 lon/lat), tried in the spec's priority order until `--stats` passes the vetting rule:
-  - LA downtown `-118.26 34.04 -118.24 34.06`
-  - Santa Barbara `-119.71 34.41 -119.69 34.43`
-  - San Francisco `-122.42 37.78 -122.40 37.80`
-  - NYC `-74.01 40.70 -73.99 40.72`
-- Vetting rule: class 6 (Building) ≥ 3% and class 5 (High Vegetation) ≥ 3% of points, raw count ≥ 5M.
+- Discovery: `GET https://opendata.vancouver.ca/api/explore/v2.1/catalog/datasets/lidar-2022/records?select=name,lidar_url&limit=100&offset=<k>` (181 records, page until `results` is empty); tile name = `<E>_<N>` lower-left UTM 10N metres, 1 km square. `--near` sorts by distance from `(E, N)` to the tile centre.
+- Download is **not** scripted: `webtransfer.vancouver.ca` answers scripted requests with a Cloudflare browser challenge (`cf-mitigated: challenge`, HTTP 403). The tile URL is opened in a browser (in-session via the Chrome MCP tools, or by hand) and the zip lands in `~/Downloads`; `--import` unpacks it with `zipfile` (streamed, single member matching `*.las`/`*.laz`) and writes `source.json` = `{ url, name, imported (ISO), license: "Open Government Licence – Vancouver", licenseUrl: "https://opendata.vancouver.ca/pages/licence/" }`.
+- Tile: `491000_5458000` (downtown); fallbacks `490000_5458000`, `491000_5457000`, `492000_5458000`.
+- Vetting rule: class 6 (Building) ≥ 3% and class 5 (High Vegetation) ≥ 3% of points, raw count ≥ 5M. Verified 2026-09-15 that no 3DEP candidate passes it (A10).
 
 ### `preprocess.py`
 ```
 preprocess.py IN.laz OUT_DIR [--max-points N] [--cell-size M] [--demo N] [--units auto|m|ft|ftus] [--z-units auto|m|ft|ftus] [--seed 1] [--stats]
 ```
 Pipeline (all coordinates converted to metres first):
-1. Read with laspy (lazrs backend). Linear units, horizontal and vertical resolved **separately** (State Plane ftUS horizontal with NAVD88 metres vertical exists in 3DEP): `--units auto` / `--z-units auto` look first for a WKT VLR (`WktCoordinateSystemVlr.string`, LAS 1.4 point formats 6–10 always carry one): horizontal from the `PROJCS`/`PROJCRS` `UNIT`, vertical from the `VERT_CS`/`VERTCRS` `UNIT`; string match `US survey foot` / `Foot_US` / `ftUS` → 1200/3937 m, `foot` / `Foot` → 0.3048 m, `metre` / `meter` → 1. If no WKT VLR (LAS 1.2/1.3 tiles carry GeoTIFF keys instead), read `GeoKeyDirectoryVlr.geo_keys`: key 3076 `ProjLinearUnitsGeoKey` (horizontal) and key 4099 `VerticalUnitsGeoKey` (vertical), values 9001 metre / 9002 international foot / 9003 US survey foot. Neither found → error unless `--units`/`--z-units` given explicitly; `--stats` reports which source was used. No pyproj. `--stats`: print count, bounds (native + metres), unit source, ASPRS class histogram with names, intensity p1/p50/p99, then exit.
+1. Read with laspy (`.las` or `.laz`, lazrs backend). Linear units, horizontal and vertical resolved **separately** (State Plane ftUS horizontal with NAVD88 metres vertical exists in 3DEP): `--units auto` / `--z-units auto` look first for a WKT VLR (`WktCoordinateSystemVlr.string`, in `header.vlrs` **or** `header.evlrs`; the SF 2024 tile keeps it in an EVLR; `header.evlrs` is `None` on LAS 1.2): horizontal from the `PROJCS`/`PROJCRS` `UNIT`, vertical from the `VERT_CS`/`VERTCRS` `UNIT`; string match `US survey foot` / `Foot_US` / `ftUS` → 1200/3937 m, `foot` / `Foot` → 0.3048 m, `metre` / `meter` → 1. If no WKT VLR (LAS 1.2/1.3 tiles carry GeoTIFF keys instead), read `GeoKeyDirectoryVlr.geo_keys`: key 3076 `ProjLinearUnitsGeoKey` (horizontal) and key 4099 `VerticalUnitsGeoKey` (vertical), values 9001 metre / 9002 international foot / 9003 US survey foot. Neither found → error unless `--units`/`--z-units` given explicitly; `--stats` reports which source was used. No pyproj. `--stats`: print count, bounds (native + metres), unit source, ASPRS class histogram with names, intensity p1/p50/p99, then exit.
 2. `--max-points N`: seeded random permutation, keep first N (uniform subsample).
 3. Global AABB (metres) → u16 quantization `q = round((p - min) / (max - min) * 65535)`, clamped. Degenerate axis → 0.
 4. Intensity u16 → u8 by p1–p99 normalisation, clamped; `p99 == p1` (tiles with no intensity) → all 0. Classification u8 raw.
@@ -62,7 +58,7 @@ Memory: float64 XYZ until quantized; ~1 GB peak at 20M. Target: 20M in under 2 m
 
 ### `manifest.json`
 ```json
-{ "version": 1, "name": "la-downtown", "source": "<tile URL>", "license": "USGS 3DEP, public domain",
+{ "version": 1, "name": "vancouver-downtown", "source": "<tile zip URL>", "license": "Open Government Licence – Vancouver",
   "crs": "<WKT or EPSG string from VLR>", "units": "m",
   "bounds": {"min":[x,y,z],"max":[x,y,z]},
   "pointCount": N, "bytesPerPoint": 8, "file": "points.bin",
@@ -78,7 +74,7 @@ Follows redirects manually (hop by hop, `Origin: https://example.com` on every r
 `npm run data:demo` / `npm run data:full`. Downloads `https://github.com/merttoka/point-cloud-editor/releases/download/v0.1-data/<name>-manifest.json` and `<name>-points.bin` into `public/data/<name>/{manifest.json,points.bin}`; skips files whose size already matches `Content-Length`. Release assets are flat, hence the `<name>-` prefix; the script renames on write.
 
 ### Release `v0.1-data`
-`gh release create v0.1-data` with four assets (`demo-manifest.json`, `demo-points.bin`, `full-manifest.json`, `full-points.bin`). Notes: source tile URL, project name, licence, point counts, preprocess flags used. Data releases are tagged independently of code.
+`gh release create v0.1-data` with four assets (`demo-manifest.json`, `demo-points.bin`, `full-manifest.json`, `full-points.bin`). Notes: source tile URL, dataset name, licence + attribution line ("Contains information licensed under the Open Government Licence – Vancouver"), point counts, preprocess flags used. Data releases are tagged independently of code.
 
 ## Acceptance criteria
 
@@ -91,8 +87,9 @@ Follows redirects manually (hop by hop, `Origin: https://example.com` on every r
 
 ## Risks and spikes
 
-- **TNM Access API unavailable or schema changed** → `--url` manual path; README lists the staged LPC URL pattern.
-- **No LA tile with both classes** → walk the bbox list; the manifest `name` follows the chosen city.
+- **Vancouver open-data API unavailable** → the tile URL pattern is fixed (`https://webtransfer.vancouver.ca/opendata/2022LiDAR/<name>.zip`); README lists it.
+- **Downtown tile fails vetting** (e.g. water-heavy) → walk the fallback tiles; the manifest `name` stays `vancouver-<area>`.
+- **Tile size**: up to 2.7 GB zipped per the dataset notes; ~49M points at 1 km²; laspy loads it fully (~2 GB RAM) before subsampling to 20M.
 - **Release asset redirect loses CORS or Range** (assets redirect to `objects.githubusercontent.com`) → decide at that point between website static hosting (`git-ftp`) and keeping the release; the loader's full-fetch fallback covers a missing Range but not missing CORS.
 - **LAZ decode speed** at 30M+ raw points: lazrs is multi-threaded, expect ~30 s; acceptable.
 

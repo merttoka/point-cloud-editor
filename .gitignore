@@ -1,6 +1,10 @@
 node_modules
 dist
-data/raw
+data/
+public/data/
+tools/.venv/
+__pycache__/
+.pytest_cache/
 .DS_Store
 *.local
 .playwright-mcp/
