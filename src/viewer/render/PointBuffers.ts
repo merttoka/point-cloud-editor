@@ -1,6 +1,7 @@
 import { StorageBufferAttribute } from 'three/webgpu'
 import type { StorageBufferNode } from 'three/webgpu'
 import { storage } from 'three/tsl'
+import { WORDS_PER_POINT } from '../format/quant'
 
 export const FLAG_HIDDEN = 1
 export const FLAG_SELECTED = 2
@@ -20,25 +21,24 @@ export interface PointBuffers {
 }
 
 export function createPointBuffers(count: number, chunkCount: number): PointBuffers {
-  const qpos = new StorageBufferAttribute(new Uint32Array(count * 2), 2)
-  const flags = new StorageBufferAttribute(new Uint32Array(Math.ceil(count / 4)), 1)
+  const flagWords = Math.ceil(count / 4)   // one flag byte per point
+  const qpos = new StorageBufferAttribute(new Uint32Array(count * WORDS_PER_POINT), WORDS_PER_POINT)
+  const flags = new StorageBufferAttribute(new Uint32Array(flagWords), 1)
   // Same node bound read_write in compute (later phases) and read in vertex; never toReadOnly().
   const qposNode = storage(qpos, 'uvec2', count)
-  const flagsNode = storage(flags, 'uint', Math.ceil(count / 4))
+  const flagsNode = storage(flags, 'uint', flagWords)
   return {
     count, qpos, flags, qposNode, flagsNode,
     loaded: new Uint8Array(chunkCount),
     uploadRange(offset, words) {
-      ;(qpos.array as Uint32Array).set(words, offset * 2)
-      qpos.addUpdateRange(offset * 2, words.length)
+      ;(qpos.array as Uint32Array).set(words, offset * WORDS_PER_POINT)
+      qpos.addUpdateRange(offset * WORDS_PER_POINT, words.length)
       qpos.needsUpdate = true
     },
     dispose() {
-      // Node.dispose() only dispatches a 'dispose' event. r3f 9.7's unmountComponentAtNode does
-      // NOT call gl.dispose() on a WebGPURenderer (it only calls renderLists?.dispose /
-      // forceContextLoss?.(), which don't exist on it) — so <Canvas> unmount never disposes the
-      // renderer, and these GPU buffers (N×8 + ceil(N/4)×4 B) plus the renderer itself live until
-      // the page unloads. Known limitation; revisit when the viewer supports remount/dataset switching.
+      // Known limitation: Node.dispose() only emits an event, and r3f 9.7 never calls gl.dispose() on a
+      // WebGPURenderer at <Canvas> unmount (it only tries renderLists/forceContextLoss, which don't exist on it),
+      // so these GPU buffers and the renderer live until the page unloads.
       qposNode.dispose()
       flagsNode.dispose()
     },

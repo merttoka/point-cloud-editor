@@ -1,22 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchManifest, type Manifest } from './manifest'
+import { useEffect, useRef, useState } from 'react'
+import { centroidOf, fetchManifest, type Manifest } from './manifest'
 import type { LoaderIn, LoaderOut } from './fetchChunks'
 import type { ChunkRef } from './chunkQueue'
 import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
-import { centroidOf } from '../render/ChunkSprites'
-import type { Store, ViewerState } from '../state/store'
-import { fitDistance, type ViewerApi } from '../render/Scene'
+import { useViewerStore } from '../state/store'
+import { homePose, type ViewerApi } from '../render/Scene'
 
 export interface Loaded {
   manifest: Manifest
   binUrl: string
   buffers: PointBuffers
   handle: PointMaterialHandle
-  centroid: [number, number, number]
 }
 
-export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: ViewerApi): Loaded | null {
+export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
+  const store = useViewerStore()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const uploadLog = useRef<number[]>([])
 
@@ -25,11 +24,10 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
     store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 } })
     fetchManifest(manifestUrl).then(({ manifest, binUrl }) => {
       if (cancelled) return
-      const centroid = centroidOf(manifest.bounds)
       const buffers = createPointBuffers(manifest.pointCount, manifest.chunks.length)
-      const handle = createPointMaterial(buffers, manifest, centroid)
+      const handle = createPointMaterial(buffers, manifest, store.get())
       store.set({ manifest })
-      setLoaded({ manifest, binUrl, buffers, handle, centroid })
+      setLoaded({ manifest, binUrl, buffers, handle })
     }).catch((err: unknown) => {
       if (!cancelled) store.set({ status: 'error', error: String(err) })
     })
@@ -38,7 +36,8 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
 
   useEffect(() => {
     if (!loaded) return
-    const { manifest, binUrl, buffers, centroid } = loaded
+    const { manifest, binUrl, buffers } = loaded
+    const centroid = centroidOf(manifest.bounds)
     const worker = new Worker(new URL('./loader.worker.ts', import.meta.url), { type: 'module' })
     const chunks: ChunkRef[] = manifest.chunks.map((c, index) => {
       const cc = centroidOf(c.bounds)
@@ -55,7 +54,6 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
         points += manifest.chunks[msg.index].count
         n += 1
         store.set({ loaded: { points, chunks: n } })
-        if (import.meta.env.DEV) console.debug(`[loader] chunk ${msg.index} (${manifest.chunks[msg.index].count} pts) ${n}/${manifest.chunks.length}`)
       } else if (msg.type === 'done') {
         store.set({ status: 'ready' })
         api.sendCamera = undefined
@@ -67,14 +65,8 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
         store.set({ status: 'error', error: msg.message })
       }
     }
-    // Seed the queue with the same initial camera the scene fits to (centred frame, target origin)
-    // so the first chunks fetched are the ones the camera is actually looking at.
-    const fov = 50
-    const dist = fitDistance(manifest, fov)
-    const dx = 1, dy = -1, dz = 0.8
-    const mag = Math.sqrt(dx * dx + dy * dy + dz * dz)
-    const initPos: [number, number, number] = [(dx / mag) * dist, (dy / mag) * dist, (dz / mag) * dist]
-    const start: LoaderIn = { type: 'start', binUrl, chunks, pos: initPos }
+    // Seed the queue with the pose the scene fits to, so the first chunks fetched are the ones in view.
+    const start: LoaderIn = { type: 'start', binUrl, chunks, pos: homePose(manifest).pos }
     worker.postMessage(start)
     api.sendCamera = (pos) => { const m: LoaderIn = { type: 'camera', pos }; worker.postMessage(m) }
     return () => {
@@ -88,5 +80,5 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
 
   useEffect(() => () => { loaded?.handle.dispose(); loaded?.buffers.dispose() }, [loaded])
 
-  return useMemo(() => loaded, [loaded])
+  return loaded
 }

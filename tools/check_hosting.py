@@ -22,6 +22,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _lower(headers) -> dict[str, str]:
+    return {k.lower(): v for k, v in headers.items()}
+
+
 def walk(url: str, origin: str, max_hops: int = 10) -> list[Hop]:
     opener = urllib.request.build_opener(_NoRedirect())
     hops: list[Hop] = []
@@ -32,12 +36,10 @@ def walk(url: str, origin: str, max_hops: int = 10) -> list[Hop]:
                 # Read only 17 B: a 206 response is 16 B anyway, and this avoids
                 # downloading the whole body on a host that ignores Range and
                 # returns 200 + full content (seen up to 160 MB in practice).
-                body = r.read(17)
-                body_len = len(body)
-                hops.append(Hop(url, r.status, {k.lower(): v for k, v in r.headers.items()}, body_len))
+                hops.append(Hop(url, r.status, _lower(r.headers), len(r.read(17))))
                 return hops
         except urllib.error.HTTPError as e:
-            headers = {k.lower(): v for k, v in e.headers.items()}
+            headers = _lower(e.headers)
             hops.append(Hop(url, e.code, headers, 0))
             if e.code in (301, 302, 303, 307, 308) and "location" in headers:
                 url = urllib.parse.urljoin(url, headers["location"])

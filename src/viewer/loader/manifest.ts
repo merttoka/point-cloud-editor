@@ -1,5 +1,8 @@
-import type { Bounds } from '../format/quant'
-export type { Bounds }
+import { BYTES_PER_POINT, type Bounds } from '../format/quant'
+
+export function centroidOf(b: Bounds): [number, number, number] {
+  return [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2]
+}
 
 export interface ManifestChunk { offset: number; count: number; bounds: Bounds }
 
@@ -12,7 +15,7 @@ export interface Manifest {
   units: 'm'
   bounds: Bounds
   pointCount: number
-  bytesPerPoint: 8
+  bytesPerPoint: typeof BYTES_PER_POINT
   file: string
   classMap: Record<string, string>
   chunks: ManifestChunk[]
@@ -29,7 +32,7 @@ export function validateManifest(json: unknown): Manifest {
   if (typeof json !== 'object' || json === null) throw new Error('manifest: not an object')
   const m = json as Record<string, unknown>
   if (m.version !== 1) throw new Error(`manifest: unsupported version ${String(m.version)}`)
-  if (m.bytesPerPoint !== 8) throw new Error(`manifest: bytesPerPoint must be 8, got ${String(m.bytesPerPoint)}`)
+  if (m.bytesPerPoint !== BYTES_PER_POINT) throw new Error(`manifest: bytesPerPoint must be ${BYTES_PER_POINT}, got ${String(m.bytesPerPoint)}`)
   if (typeof m.file !== 'string') throw new Error('manifest: file missing')
   if (typeof m.pointCount !== 'number') throw new Error('manifest: pointCount missing')
   if (!isBounds(m.bounds)) throw new Error('manifest: bounds invalid')
@@ -50,7 +53,7 @@ export function validateManifest(json: unknown): Manifest {
     units: 'm',
     bounds: m.bounds,
     pointCount: m.pointCount,
-    bytesPerPoint: 8,
+    bytesPerPoint: BYTES_PER_POINT,
     file: m.file,
     classMap: (typeof m.classMap === 'object' && m.classMap !== null ? m.classMap : {}) as Record<string, string>,
     chunks: m.chunks as ManifestChunk[],

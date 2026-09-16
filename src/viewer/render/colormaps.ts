@@ -52,8 +52,8 @@ export const ASPRS_COLORS: Record<number, RGB> = {
   6: [224, 160, 64],    // building
   7: [255, 59, 208],    // low noise
   9: [47, 128, 237],    // water
-  17: [192, 192, 192],  // bridge deck   (addition beyond the spec's minimum list)
-  18: [255, 59, 208],   // high noise    (addition beyond the spec's minimum list)
+  17: [192, 192, 192],  // bridge deck
+  18: [255, 59, 208],   // high noise
 }
 
 export type LutKind = 'viridis' | 'turbo' | 'grayscale' | 'class'

@@ -1,4 +1,5 @@
 import type { ChunkQueue, ChunkRef } from './chunkQueue'
+import { BYTES_PER_POINT } from '../format/quant'
 
 export type LoaderIn =
   | { type: 'start'; binUrl: string; chunks: ChunkRef[]; pos?: [number, number, number] }
@@ -18,11 +19,11 @@ export interface LoaderIO {
 }
 
 export function rangeHeader(c: ChunkRef): string {
-  return `bytes=${c.offset * 8}-${(c.offset + c.count) * 8 - 1}`
+  return `bytes=${c.offset * BYTES_PER_POINT}-${(c.offset + c.count) * BYTES_PER_POINT - 1}`
 }
 
 export function sliceChunk(full: ArrayBuffer, c: ChunkRef): Uint32Array {
-  return new Uint32Array(full.slice(c.offset * 8, (c.offset + c.count) * 8))
+  return new Uint32Array(full.slice(c.offset * BYTES_PER_POINT, (c.offset + c.count) * BYTES_PER_POINT))
 }
 
 export async function fetchAll(binUrl: string, queue: ChunkQueue, io: LoaderIO): Promise<void> {
@@ -31,30 +32,38 @@ export async function fetchAll(binUrl: string, queue: ChunkQueue, io: LoaderIO):
   if (!first) return
   let url = binUrl           // switches to response.url after the first response (skips the 302 per chunk)
 
-  const fetchOne = (c: ChunkRef, target: string): Promise<Response> =>
-    io.fetch(target, { headers: { Range: rangeHeader(c) }, signal: io.signal })
+  const fetchOne = (c: ChunkRef): Promise<Response> =>
+    io.fetch(url, { headers: { Range: rangeHeader(c) }, signal: io.signal })
 
   const fetchChunk = async (c: ChunkRef): Promise<Response> => {
-    let res = await fetchOne(c, url)
+    let res = await fetchOne(c)
     if (!res.ok && url !== binUrl) {          // reused CDN url expired → retry from the origin once
       await res.body?.cancel()
       url = binUrl
-      res = await fetchOne(c, url)
+      res = await fetchOne(c)
     }
-    if (!res.ok) throw new Error(`chunk ${c.index}: HTTP ${res.status}`)
+    if (!res.ok) {
+      await res.body?.cancel()   // release the connection before the caller retries
+      throw new Error(`chunk ${c.index}: HTTP ${res.status}`)
+    }
     return res
+  }
+
+  const retryOnce = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    try { return await fn() } catch (e) { if (io.signal.aborted) throw e; return fn() }
   }
 
   const postRange = async (c: ChunkRef, res: Response): Promise<void> => {
     const buf = await res.arrayBuffer()
-    if (buf.byteLength !== c.count * 8) throw new Error(`chunk ${c.index}: expected ${c.count * 8} bytes, got ${buf.byteLength}`)
+    const expected = c.count * BYTES_PER_POINT
+    if (buf.byteLength !== expected) throw new Error(`chunk ${c.index}: expected ${expected} bytes, got ${buf.byteLength}`)
     io.post(c.index, new Uint32Array(buf))
   }
 
   // Discovery is serialised: the first chunk alone decides the mode (Range vs full file) and
   // yields the post-redirect URL. Only then does the pool start, so the full-fetch fallback
   // never downloads the file more than once.
-  const res = await fetchChunk(first)
+  const res = await retryOnce(() => fetchChunk(first))
   if (res.status === 200 && !res.headers.get('Content-Range')) {
     const full = await res.arrayBuffer()
     if (io.totalBytes !== undefined && full.byteLength !== io.totalBytes) {
@@ -72,14 +81,7 @@ export async function fetchAll(binUrl: string, queue: ChunkQueue, io: LoaderIO):
       if (io.signal.aborted) return
       const c = queue.pop()
       if (!c) return
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await postRange(c, await fetchChunk(c))
-          break
-        } catch (e) {
-          if (attempt >= 1 || io.signal.aborted) throw e
-        }
-      }
+      await retryOnce(async () => postRange(c, await fetchChunk(c)))
     }
   })
   await Promise.all(workers)

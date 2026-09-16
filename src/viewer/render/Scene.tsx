@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, type RefObject } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type GLProps } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three/webgpu'
 import type { Manifest } from '../loader/manifest'
+import { BYTES_PER_POINT } from '../format/quant'
 import type { PointBuffers } from './PointBuffers'
 import type { PointMaterialHandle } from './pointMaterial'
-import type { Store, ViewerState } from '../state/store'
+import { useViewerStore, type Store, type ViewerState } from '../state/store'
 import { ChunkSprites } from './ChunkSprites'
 import { Hud } from '../ui/Hud'
 
@@ -15,11 +16,16 @@ export interface ViewerApi {
   sendCamera?: (pos: [number, number, number]) => void
 }
 
-export function fitDistance(manifest: Manifest, fovDeg: number): number {
+const HOME_FOV = 50
+const HOME_DIR = new THREE.Vector3(1, -1, 0.8).normalize()
+
+// The pose `fit` frames the dataset from (single source: the loader seeds its chunk queue with the same one).
+export function homePose(manifest: Manifest, fovDeg = HOME_FOV): { dist: number; pos: [number, number, number] } {
   const b = manifest.bounds
   const dx = b.max[0] - b.min[0], dy = b.max[1] - b.min[1], dz = b.max[2] - b.min[2]
   const radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2
-  return radius / Math.sin((fovDeg * Math.PI) / 360) * 1.1
+  const dist = radius / Math.sin((fovDeg * Math.PI) / 360) * 1.1
+  return { dist, pos: [HOME_DIR.x * dist, HOME_DIR.y * dist, HOME_DIR.z * dist] }
 }
 
 function CameraRig({ manifest, handle, api }: { manifest: Manifest; handle: PointMaterialHandle; api: ViewerApi }) {
@@ -29,9 +35,8 @@ function CameraRig({ manifest, handle, api }: { manifest: Manifest; handle: Poin
   useEffect(() => {
     const fit = () => {
       const cam = camera as THREE.PerspectiveCamera
-      const d = fitDistance(manifest, cam.fov)
-      const dir = new THREE.Vector3(1, -1, 0.8).normalize()
-      cam.position.copy(dir.multiplyScalar(d))
+      const { dist: d, pos } = homePose(manifest, cam.fov)
+      cam.position.set(...pos)
       cam.near = d / 1000
       cam.far = d * 10
       cam.updateProjectionMatrix()
@@ -60,40 +65,55 @@ function CameraRig({ manifest, handle, api }: { manifest: Manifest; handle: Poin
 // skips updateCamera → NaN projection → black canvas). Make everything configure() creates idempotent: one
 // renderer promise per canvas, and stable camera/scene instances owned by <Scene>.
 const rendererByCanvas = new WeakMap<HTMLCanvasElement, Promise<THREE.WebGPURenderer>>()
+type GlFactoryProps = Parameters<Extract<GLProps, (p: never) => unknown>>[0]   // r3f doesn't export DefaultGLProps
 
-async function createRenderer(props: Record<string, unknown>, store: Store<ViewerState>, buffers: PointBuffers): Promise<THREE.WebGPURenderer> {
-  // Same adapter options as WebGPUBackend.init; request the adapter's own storage-binding limit (phase 0).
-  const adapter = await navigator.gpu.requestAdapter({
-    powerPreference: props.powerPreference as GPUPowerPreference,
-    featureLevel: 'compatibility',
-  })
+async function createRenderer(props: GlFactoryProps, canvas: HTMLCanvasElement, store: Store<ViewerState>): Promise<THREE.WebGPURenderer> {
+  // r3f's default is the WebGL enum ('default' | 'high-performance' | 'low-power'); WebGPU has no 'default'.
+  const powerPreference = props.powerPreference as GPUPowerPreference | undefined
+  // Same adapter options as WebGPUBackend.init, so the limit requested here is the one three's adapter reports.
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference, featureLevel: 'compatibility' })
   if (!adapter) {
     store.set({ status: 'error', error: 'No WebGPU adapter available.' })
     throw new Error('No WebGPU adapter')
   }
+  const maxBinding = adapter.limits.maxStorageBufferBindingSize
   const renderer = new THREE.WebGPURenderer({
     ...props,
+    canvas,
+    powerPreference,
     antialias: false,
     trackTimestamp: true,
-    requiredLimits: adapter ? { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize } : undefined,
+    requiredLimits: { maxStorageBufferBindingSize: maxBinding },
   })
   await renderer.init()
   renderer.info.autoReset = false   // Hud owns info.reset()
-  const maxBinding = adapter?.limits.maxStorageBufferBindingSize ?? 128 * 1024 * 1024
   const compat = (renderer.backend as unknown as { compatibilityMode: boolean | null }).compatibilityMode
   if (compat) store.set({ status: 'error', error: 'WebGPU compatibility mode not supported (no storage buffers in the vertex stage).' })
-  else if (buffers.count * 8 > maxBinding) store.set({ status: 'error', error: `Dataset too large for this GPU: ${buffers.count.toLocaleString()} points need ${(buffers.count * 8 / 2 ** 20).toFixed(0)} MiB in one storage binding, limit ${(maxBinding / 2 ** 20).toFixed(0)} MiB.` })
   return renderer
 }
 
-export function Scene({ store, buffers, manifest, handle, centroid, api, hudEl }: {
-  store: Store<ViewerState>; buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle
-  centroid: [number, number, number]; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>
+// Renderer is created once per canvas, but `buffers` changes per dataset (manifestUrl swap keeps <Scene> mounted),
+// so the binding-size check must follow the buffers, not the renderer.
+function DatasetLimitCheck({ buffers }: { buffers: PointBuffers }) {
+  const { gl } = useThree()
+  const store = useViewerStore()
+  useEffect(() => {
+    const maxBinding = (gl as unknown as { backend: { device?: GPUDevice } }).backend.device?.limits.maxStorageBufferBindingSize
+    if (maxBinding === undefined) return
+    const need = buffers.count * BYTES_PER_POINT
+    if (need > maxBinding) store.set({ status: 'error', error: `Dataset too large for this GPU: ${buffers.count.toLocaleString()} points need ${(need / 2 ** 20).toFixed(0)} MiB in one storage binding, limit ${(maxBinding / 2 ** 20).toFixed(0)} MiB.` })
+  }, [gl, buffers, store])
+  return null
+}
+
+export function Scene({ buffers, manifest, handle, api, hudEl }: {
+  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>
 }) {
+  const store = useViewerStore()
   const camera = useMemo(() => {
-    const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 10000)   // aspect set by r3f on the first setSize; CameraRig fits position/near/far
+    const cam = new THREE.PerspectiveCamera(HOME_FOV, 1, 0.1, 10000)   // aspect set by r3f on the first setSize; CameraRig fits position/near/far
     cam.up.set(0, 0, 1)
-    cam.position.set(1, -1, 0.8)
+    cam.position.copy(HOME_DIR)
     return cam
   }, [])
   const scene = useMemo(() => new THREE.Scene(), [])
@@ -105,13 +125,14 @@ export function Scene({ store, buffers, manifest, handle, centroid, api, hudEl }
         const canvas = props.canvas as HTMLCanvasElement
         const cached = rendererByCanvas.get(canvas)
         if (cached) return cached
-        const p = createRenderer(props as Record<string, unknown>, store, buffers)
+        const p = createRenderer(props, canvas, store)
         p.catch(() => rendererByCanvas.delete(canvas))
         rendererByCanvas.set(canvas, p)
         return p
       }}
     >
-      <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} centroid={centroid} />
+      <DatasetLimitCheck buffers={buffers} />
+      <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} />
       <CameraRig manifest={manifest} handle={handle} api={api} />
       <Hud el={hudEl} />
     </Canvas>

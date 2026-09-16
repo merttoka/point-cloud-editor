@@ -1,5 +1,6 @@
 import { ChunkQueue } from './chunkQueue'
 import { fetchAll, type LoaderIn, type LoaderOut } from './fetchChunks'
+import { BYTES_PER_POINT } from '../format/quant'
 
 const ctx = self as unknown as { postMessage(msg: LoaderOut, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<LoaderIn>) => void) | null }
 let queue: ChunkQueue | null = null
@@ -12,7 +13,7 @@ ctx.onmessage = (e) => {
   queue = new ChunkQueue(msg.chunks)
   if (msg.pos) queue.setCamera(msg.pos)
   ac = new AbortController()
-  const totalBytes = msg.chunks.reduce((max, c) => Math.max(max, (c.offset + c.count) * 8), 0)
+  const totalBytes = msg.chunks.reduce((max, c) => Math.max(max, (c.offset + c.count) * BYTES_PER_POINT), 0)
   fetchAll(msg.binUrl, queue, {
     fetch: (input, init) => fetch(input, init),
     post: (index, words) => ctx.postMessage({ type: 'chunk', index, words }, [words.buffer]),

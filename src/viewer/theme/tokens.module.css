@@ -18,7 +18,5 @@
   --pcv-card: var(--bg-card, #fff);
   --pcv-text: var(--text-primary, #111);
   --pcv-text-2: var(--text-secondary, #444);
-  --pcv-muted: var(--text-muted, #666);
   --pcv-border: var(--border, #e0e0e0);
-  --pcv-accent: var(--accent, #BF1656);
 }

@@ -15,6 +15,7 @@ import numpy as np
 from laspy.vlrs.known import GeoKeyDirectoryVlr, WktCoordinateSystemVlr
 
 QMAX = 65535
+BYTES_PER_POINT = 8   # 4 × u16 (x, y, z, intensity | class<<8); mirrors src/viewer/format/quant.ts
 FT_US = 1200 / 3937
 FT_INTL = 0.3048
 
@@ -30,15 +31,20 @@ def class_name(code: int) -> str:
     return ASPRS.get(int(code), f"Class {int(code)}")
 
 
+def bounds_of(xyz: np.ndarray) -> dict:
+    return {"min": xyz.min(axis=0).tolist(), "max": xyz.max(axis=0).tolist()}
+
+
 def quantize_cloud(xyz: np.ndarray) -> tuple[np.ndarray, dict]:
-    mn = xyz.min(axis=0)
-    mx = xyz.max(axis=0)
-    span = mx - mn
-    q = np.zeros(xyz.shape, np.uint16)
-    for a in range(3):
-        if span[a] > 0:
-            q[:, a] = np.clip(np.rint((xyz[:, a] - mn[a]) / span[a] * QMAX), 0, QMAX).astype(np.uint16)
-    return q, {"min": mn.tolist(), "max": mx.tolist()}
+    mn, mx = xyz.min(axis=0), xyz.max(axis=0)
+    span = np.where(mx > mn, mx - mn, 1.0)   # degenerate axis: numerator is 0 everywhere, so q stays 0
+    # One n×3 float64 scratch, updated in place: keeps peak memory at ~1 temp instead of one per operator.
+    t = xyz - mn
+    t /= span
+    t *= QMAX
+    np.rint(t, out=t)
+    np.clip(t, 0, QMAX, out=t)
+    return t.astype(np.uint16), {"min": mn.tolist(), "max": mx.tolist()}
 
 
 def normalize_intensity(i: np.ndarray) -> np.ndarray:
@@ -49,7 +55,7 @@ def normalize_intensity(i: np.ndarray) -> np.ndarray:
 
 
 def pack_attr(intensity8: np.ndarray, cls: np.ndarray) -> np.ndarray:
-    return (intensity8.astype(np.uint16) | (cls.astype(np.uint16) << 8)).astype(np.uint16)
+    return intensity8.astype(np.uint16) | (cls.astype(np.uint16) << 8)
 
 
 _UNIT_RE = re.compile(r'(?<![A-Z])(?:LENGTH)?UNIT\["([^"]+)"')
@@ -161,9 +167,9 @@ def load_cloud(path, units: str = "auto", z_units: str = "auto") -> Cloud:
     u = resolve_units(las.header, units, z_units)
     n = len(las.points)
     xyz = np.empty((n, 3), np.float64)
-    xyz[:, 0] = las.x * u.xy
-    xyz[:, 1] = las.y * u.xy
-    xyz[:, 2] = las.z * u.z
+    np.multiply(las.x, u.xy, out=xyz[:, 0])
+    np.multiply(las.y, u.xy, out=xyz[:, 1])
+    np.multiply(las.z, u.z, out=xyz[:, 2])
     return Cloud(xyz, np.asarray(las.intensity, np.uint16), np.asarray(las.classification, np.uint8),
                  crs_string(las.header), u)
 
@@ -188,13 +194,12 @@ def chunk_order(xyz: np.ndarray, bounds_min, cell: float, seed: int) -> tuple[np
     mx = xyz.max(axis=0)
     ix = np.floor((xyz[:, 0] - mn[0]) / cell).astype(np.int64)
     iy = np.floor((xyz[:, 1] - mn[1]) / cell).astype(np.int64)
-    # Principled clipping: fold boundary points into last cell
+    # Points on the max edge land in the last cell of the ceil'd grid instead of opening a new one
     ncx = max(1, int(np.ceil((mx[0] - mn[0]) / cell)))
     ncy = max(1, int(np.ceil((mx[1] - mn[1]) / cell)))
     ix = np.minimum(ix, ncx - 1)
     iy = np.minimum(iy, ncy - 1)
-    nx = ncx
-    key = iy * nx + ix
+    key = iy * ncx + ix
     order = np.argsort(key, kind="stable")
     sorted_keys = key[order]
     starts = np.concatenate([[0], np.flatnonzero(np.diff(sorted_keys)) + 1, [len(order)]])
@@ -203,27 +208,25 @@ def chunk_order(xyz: np.ndarray, bounds_min, cell: float, seed: int) -> tuple[np
     for s, e in zip(starts[:-1], starts[1:]):
         seg = order[s:e]
         rng.shuffle(seg)
-        pts = xyz[seg]
-        chunks.append(Chunk(int(s), int(e - s), {"min": pts.min(axis=0).tolist(), "max": pts.max(axis=0).tolist()}))
+        chunks.append(Chunk(int(s), int(e - s), bounds_of(xyz[seg])))
     return order, chunks
 
 
 def write_dataset(out_dir: Path, xyz, q, packed, cls, bounds: dict, cell: float, seed: int, meta: dict) -> dict:
-    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     order, chunks = chunk_order(xyz, bounds["min"], cell, seed)
-    rec = np.empty((len(order), 4), np.uint16)
+    rec = np.empty((len(order), 4), "<u2")   # on-disk dtype: little-endian on every host
     rec[:, :3] = q[order]
     rec[:, 3] = packed[order]
-    rec.astype("<u2").tofile(out_dir / "points.bin")
-    present = np.unique(cls)
+    rec.tofile(out_dir / "points.bin")
+    present = np.flatnonzero(np.bincount(cls, minlength=256))
     manifest = {
         "version": 1,
         "name": meta["name"], "source": meta["source"], "license": meta["license"],
         "crs": meta["crs"], "units": "m",
         "bounds": bounds,
-        "pointCount": int(len(order)), "bytesPerPoint": 8, "file": "points.bin",
-        "classMap": {str(int(c)): class_name(int(c)) for c in present},
+        "pointCount": int(len(order)), "bytesPerPoint": BYTES_PER_POINT, "file": "points.bin",
+        "classMap": {str(c): class_name(c) for c in present},
         "chunks": [{"offset": c.offset, "count": c.count, "bounds": c.bounds} for c in chunks],
     }
     with open(out_dir / "manifest.json", "w") as f:
@@ -232,18 +235,19 @@ def write_dataset(out_dir: Path, xyz, q, packed, cls, bounds: dict, cell: float,
 
 
 def stats(cloud: Cloud) -> dict:
-    codes, counts = np.unique(cloud.cls, return_counts=True)
+    hist = np.bincount(cloud.cls, minlength=256)
+    codes = np.flatnonzero(hist)
     n = len(cloud.cls)
     p1, p50, p99 = np.percentile(cloud.intensity, [1, 50, 99])
-    mn, mx = cloud.xyz.min(axis=0), cloud.xyz.max(axis=0)
+    bounds = bounds_of(cloud.xyz)
     factors = np.array([cloud.units.xy, cloud.units.xy, cloud.units.z])
     return {
         "count": n,
-        "bounds": {"min": mn.tolist(), "max": mx.tolist()},
-        "nativeBounds": {"min": (mn / factors).tolist(), "max": (mx / factors).tolist()},
+        "bounds": bounds,
+        "nativeBounds": {"min": (bounds["min"] / factors).tolist(), "max": (bounds["max"] / factors).tolist()},
         "unitSource": cloud.units.source,
         "unitFactors": {"xy": cloud.units.xy, "z": cloud.units.z},
-        "classes": {int(c): {"name": class_name(int(c)), "count": int(k), "pct": 100.0 * k / n} for c, k in zip(codes, counts)},
+        "classes": {int(c): {"name": class_name(c), "count": int(k), "pct": 100.0 * k / n} for c, k in zip(codes, hist[codes])},
         "intensity": {"p1": float(p1), "p50": float(p50), "p99": float(p99)},
     }
 

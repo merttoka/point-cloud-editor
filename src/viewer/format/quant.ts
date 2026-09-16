@@ -5,6 +5,10 @@ export interface Bounds {
 
 export const QMAX = 65535
 
+/** On-disk/GPU record: two little-endian u32 words per point (see packWords). */
+export const WORDS_PER_POINT = 2
+export const BYTES_PER_POINT = WORDS_PER_POINT * 4
+
 export function quantize(v: number, min: number, max: number): number {
   if (max === min) return 0
   const q = Math.round(((v - min) / (max - min)) * QMAX)

@@ -1,9 +1,7 @@
-import { useEffect } from 'react'
 import { useStore, useViewerStore, type ColorMode, type Colormap } from '../state/store'
-import type { PointMaterialHandle } from '../render/pointMaterial'
 import styles from './Panel.module.css'
 
-export function Panel({ handle }: { handle: PointMaterialHandle | null }) {
+export function Panel() {
   const store = useViewerStore()
   const manifest = useStore((s) => s.manifest)
   const loaded = useStore((s) => s.loaded)
@@ -14,22 +12,17 @@ export function Panel({ handle }: { handle: PointMaterialHandle | null }) {
   const colormap = useStore((s) => s.colormap)
   const showHud = useStore((s) => s.showHud)
 
-  useEffect(() => { handle?.setPointSize(pointSize) }, [handle, pointSize])
-  useEffect(() => {
-    handle?.setMode(colorMode)
-    handle?.setLut(colorMode === 'class' ? 'class' : colormap)
-  }, [handle, colorMode, colormap])
-
   const total = manifest?.pointCount ?? 0
   const frac = total ? loaded.points / total : 0
+  const budgetPct = Math.round(budget * 100)
   return (
     <div className={styles.panel}>
       <div className={styles.name}>{manifest?.name ?? 'loading…'}</div>
       <div className={styles.muted}>{loaded.points.toLocaleString()} / {total.toLocaleString()} pts · {loaded.chunks}/{manifest?.chunks.length ?? 0} chunks</div>
       <div className={styles.bar}><div className={styles.fill} style={{ width: `${frac * 100}%` }} /></div>
       {error && <div className={styles.muted}>{error}</div>}
-      <label className={styles.row}><span>Budget</span><span>{Math.round(budget * 100)}%</span>
-        <input type="range" min={0} max={100} step={1} value={Math.round(budget * 100)} onChange={(e) => store.set({ budget: Number(e.target.value) / 100 })} /></label>
+      <label className={styles.row}><span>Budget</span><span>{budgetPct}%</span>
+        <input type="range" min={0} max={100} step={1} value={budgetPct} onChange={(e) => store.set({ budget: Number(e.target.value) / 100 })} /></label>
       <label className={styles.row}><span>Point size</span><span>{pointSize}px</span>
         <input type="range" min={1} max={8} step={1} value={pointSize} onChange={(e) => store.set({ pointSize: Number(e.target.value) })} /></label>
       <label className={styles.row}><span>Colour</span>

@@ -28,7 +28,7 @@ function ViewerInner({ manifestUrl, theme, className }: PointCloudViewerProps) {
   const error = useStore((s) => s.error)
   const hudEl = useRef<HTMLDivElement>(null)
   const api = useRef<ViewerApi>({ fit: () => {} }).current
-  const loaded = useLoader(store, manifestUrl, api)
+  const loaded = useLoader(manifestUrl, api)
   const hasGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
 
   // Keys live on the root only (focus-scoped); nothing is attached to window/document.
@@ -37,16 +37,13 @@ function ViewerInner({ manifestUrl, theme, className }: PointCloudViewerProps) {
     if (e.key === 'h' || e.key === 'H') { store.set({ showHud: !store.get().showHud }); e.preventDefault() }
   }
 
+  const message = !hasGpu ? 'WebGPU not available in this browser.' : status === 'error' ? error : null
   return (
     <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} tabIndex={0} onKeyDown={onKeyDown}>
       <div id="hud" ref={hudEl} className={styles.hud} />
-      <Panel handle={loaded?.handle ?? null} />
-      {!hasGpu && <div className={styles.message}>WebGPU not available in this browser.</div>}
-      {hasGpu && status === 'error' && <div className={styles.message}>{error}</div>}
-      {hasGpu && status !== 'error' && loaded && (
-        <Scene store={store} buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle}
-          centroid={loaded.centroid} api={api} hudEl={hudEl} />
-      )}
+      <Panel />
+      {message !== null ? <div className={styles.message}>{message}</div>
+        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} api={api} hudEl={hudEl} />}
     </div>
   )
 }
