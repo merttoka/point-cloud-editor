@@ -58,6 +58,7 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
         if (import.meta.env.DEV) console.debug(`[loader] chunk ${msg.index} (${manifest.chunks[msg.index].count} pts) ${n}/${manifest.chunks.length}`)
       } else if (msg.type === 'done') {
         store.set({ status: 'ready' })
+        if (import.meta.env.DEV) (window as unknown as { __pcvUploadMs?: number[] }).__pcvUploadMs = uploadLog.current
       } else {
         store.set({ status: 'error', error: msg.message })
       }
