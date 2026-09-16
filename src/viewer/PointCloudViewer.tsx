@@ -2,6 +2,7 @@ import { useMemo, useRef, type KeyboardEvent } from 'react'
 import { StoreContext, createStore, initialState, useStore, useViewerStore } from './state/store'
 import { useLoader } from './loader/useLoader'
 import { Scene, type ViewerApi } from './render/Scene'
+import { Panel } from './ui/Panel'
 import styles from './PointCloudViewer.module.css'
 import tokens from './theme/tokens.module.css'
 
@@ -39,6 +40,7 @@ function ViewerInner({ manifestUrl, theme, className }: PointCloudViewerProps) {
   return (
     <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} tabIndex={0} onKeyDown={onKeyDown}>
       <div id="hud" ref={hudEl} className={styles.hud} />
+      <Panel handle={loaded?.handle ?? null} />
       {!hasGpu && <div className={styles.message}>WebGPU not available in this browser.</div>}
       {hasGpu && status === 'error' && <div className={styles.message}>{error}</div>}
       {hasGpu && status !== 'error' && loaded && (
