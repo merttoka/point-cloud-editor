@@ -20,14 +20,21 @@ export function SpikeApp() {
         camera={{ position: [1500, 1200, 1500], near: 1, far: 20000, fov: 50, up: [0, 0, 1] }}
         onCreated={({ camera, gl }) => { (window as any).__spikeCamera = camera; (window as any).__spikeGl = gl }}
         gl={async (props) => {
+          // Default maxStorageBufferBindingSize (128 MiB) is too small for the qpos storage
+          // buffer at 20M points (160 MB); raise it so the flags compute pass's bind group is
+          // valid. Query the adapter's actual limit rather than hard-coding a value: a fixed
+          // requiredLimits request larger than what the adapter supports makes requestDevice
+          // fail outright, so use exactly what this adapter reports (and fall back to no
+          // requiredLimits if the adapter can't be queried at all). Only
+          // maxStorageBufferBindingSize is raised: the compute-pass error cited only that limit,
+          // and the default maxBufferSize (256 MiB) already covers the 160 MB position buffer.
+          const adapter = await navigator.gpu.requestAdapter()
+          const requiredLimits = adapter ? { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize } : undefined
           const renderer = new THREE.WebGPURenderer({
             ...(props as Record<string, unknown>),
             antialias: false,
             trackTimestamp: true,
-            // Default maxStorageBufferBindingSize (128 MiB) is too small for the qpos storage
-            // buffer at 20M points (160 MB); raise it so the flags compute pass's bind group is
-            // valid. 1 GiB is comfortably under the adapter's reported max (~4 GiB on M4 Max).
-            requiredLimits: { maxStorageBufferBindingSize: 1 << 30, maxBufferSize: 1 << 30 },
+            ...(requiredLimits ? { requiredLimits } : {}),
           })
           await renderer.init()
           return renderer
