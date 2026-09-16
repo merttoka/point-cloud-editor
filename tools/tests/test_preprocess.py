@@ -95,6 +95,7 @@ def test_crs_string(synthetic_las):
 
 
 import json
+import shutil
 from pathlib import Path
 
 from conftest import CELL, N
@@ -166,10 +167,9 @@ def test_write_dataset_layout_and_manifest(synthetic_las, tmp_path):
     assert m["classMap"] == {"2": "Ground", "5": "High Vegetation", "6": "Building"}
     assert len(m["chunks"]) == 4
     # point 0 of the file is the first point of chunk 0 in the shuffled order
-    first = m["chunks"][0]
-    w = data[0]
-    assert (w[3] >> 8) in (2, 5, 6) and int(w[0]) <= QMAX
-    assert first["count"] > 5_000
+    order, _ = chunk_order(cloud.xyz, m["bounds"]["min"], CELL, 1)
+    assert list(data[0]) == [*q[order[0]].tolist(), int(packed[order[0]])]
+    assert m["chunks"][0]["count"] > 5_000
 
 
 def test_shuffle_prefix_is_uniform(synthetic_las, tmp_path):
@@ -222,8 +222,8 @@ def test_cli_max_points_and_demo_same_bounds(synthetic_las, tmp_path):
 
 
 def test_cli_reads_source_json(synthetic_las, tmp_path):
-    src = synthetic_las["geokeys"]
-    (src.parent / f"{src.stem}.source.json").write_text(json.dumps({"url": "http://x/t.zip", "name": "tile-x", "license": "OGL"}))
+    src = Path(shutil.copy(synthetic_las["geokeys"], tmp_path / "geokeys.las"))
+    src.with_name(f"{src.stem}.source.json").write_text(json.dumps({"url": "http://x/t.zip", "name": "tile-x", "license": "OGL"}))
     out = tmp_path / "o2"
     assert main([str(src), str(out)]) == 0
     m = json.load(open(out / "manifest.json"))

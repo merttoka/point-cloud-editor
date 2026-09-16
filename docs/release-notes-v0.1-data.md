@@ -1,7 +1,7 @@
 # Dataset v0.1 — Vancouver downtown (LiDAR 2022)
 
 Source: City of Vancouver LiDAR 2022, tile `491000_5458000`
-(https://webtransfer.vancouver.ca/opendata/2022LiDAR/491000_5458000.zip), UTM 10N NAD83(CSRS), CGVD28, metres.
+(https://webtransfer.vancouver.ca/opendata/2022LiDAR/491000_5458000.zip), UTM 10N NAD83 (EPSG:26910), metres; vertical datum per the City of Vancouver dataset notes (CGVD28).
 Contains information licensed under the Open Government Licence – Vancouver
 (https://opendata.vancouver.ca/pages/licence/).
 

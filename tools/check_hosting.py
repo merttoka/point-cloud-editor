@@ -29,8 +29,12 @@ def walk(url: str, origin: str, max_hops: int = 10) -> list[Hop]:
         req = urllib.request.Request(url, headers={"Range": "bytes=0-15", "Origin": origin, "User-Agent": "check_hosting/1"})
         try:
             with opener.open(req, timeout=60) as r:
-                body = r.read()
-                hops.append(Hop(url, r.status, {k.lower(): v for k, v in r.headers.items()}, len(body)))
+                # Read only 17 B: a 206 response is 16 B anyway, and this avoids
+                # downloading the whole body on a host that ignores Range and
+                # returns 200 + full content (seen up to 160 MB in practice).
+                body = r.read(17)
+                body_len = len(body)
+                hops.append(Hop(url, r.status, {k.lower(): v for k, v in r.headers.items()}, body_len))
                 return hops
         except urllib.error.HTTPError as e:
             headers = {k.lower(): v for k, v in e.headers.items()}

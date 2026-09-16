@@ -71,6 +71,8 @@ def unit_factor(name: str) -> float | None:
         return FT_US
     if "foot" in n or "feet" in n:
         return FT_INTL
+    if "kilo" in n or "centi" in n or "milli" in n:
+        return None
     if "met" in n:
         return 1.0
     return None
@@ -233,9 +235,12 @@ def stats(cloud: Cloud) -> dict:
     codes, counts = np.unique(cloud.cls, return_counts=True)
     n = len(cloud.cls)
     p1, p50, p99 = np.percentile(cloud.intensity, [1, 50, 99])
+    mn, mx = cloud.xyz.min(axis=0), cloud.xyz.max(axis=0)
+    factors = np.array([cloud.units.xy, cloud.units.xy, cloud.units.z])
     return {
         "count": n,
-        "bounds": {"min": cloud.xyz.min(axis=0).tolist(), "max": cloud.xyz.max(axis=0).tolist()},
+        "bounds": {"min": mn.tolist(), "max": mx.tolist()},
+        "nativeBounds": {"min": (mn / factors).tolist(), "max": (mx / factors).tolist()},
         "unitSource": cloud.units.source,
         "unitFactors": {"xy": cloud.units.xy, "z": cloud.units.z},
         "classes": {int(c): {"name": class_name(int(c)), "count": int(k), "pct": 100.0 * k / n} for c, k in zip(codes, counts)},
@@ -245,6 +250,7 @@ def stats(cloud: Cloud) -> dict:
 
 def format_stats(s: dict) -> str:
     lines = [f"points: {s['count']:,}",
+             f"bounds (native): min {s['nativeBounds']['min']} max {s['nativeBounds']['max']}",
              f"bounds (m): min {s['bounds']['min']} max {s['bounds']['max']}",
              f"unit source: {s['unitSource']} (xy ×{s['unitFactors']['xy']:.6f}, z ×{s['unitFactors']['z']:.6f})",
              "classes:"]
@@ -265,13 +271,20 @@ def _default_meta(in_path: Path) -> dict:
     return meta
 
 
+def positive_int(s: str) -> int:
+    n = int(s)
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"must be a positive integer: {s!r}")
+    return n
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("input")
     ap.add_argument("out_dir")
-    ap.add_argument("--max-points", type=int, default=None)
+    ap.add_argument("--max-points", type=positive_int, default=None)
     ap.add_argument("--cell-size", type=float, default=64.0, help="chunk cell size in metres")
-    ap.add_argument("--demo", type=int, default=None, help="also write a subsampled dataset of N points to OUT_DIR/demo")
+    ap.add_argument("--demo", type=positive_int, default=None, help="also write a subsampled dataset of N points to OUT_DIR/demo")
     ap.add_argument("--units", choices=["auto", "m", "ft", "ftus"], default="auto")
     ap.add_argument("--z-units", choices=["auto", "m", "ft", "ftus"], default="auto")
     ap.add_argument("--seed", type=int, default=1)

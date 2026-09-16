@@ -16,6 +16,7 @@ for (const [asset, file] of [[`${name}-manifest.json`, 'manifest.json'], [`${nam
   const len = Number(res.headers.get('content-length'))
   const dst = `${dir}/${file}`
   if (existsSync(dst) && len > 0 && statSync(dst).size === len) {
+    await res.body.cancel()
     console.log(`skip ${dst} (${len} B, already complete)`)
     continue
   }
