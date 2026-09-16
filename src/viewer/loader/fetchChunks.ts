@@ -1,7 +1,7 @@
 import type { ChunkQueue, ChunkRef } from './chunkQueue'
 
 export type LoaderIn =
-  | { type: 'start'; binUrl: string; chunks: ChunkRef[] }
+  | { type: 'start'; binUrl: string; chunks: ChunkRef[]; pos?: [number, number, number] }
   | { type: 'camera'; pos: [number, number, number] }
   | { type: 'dispose' }
 export type LoaderOut =

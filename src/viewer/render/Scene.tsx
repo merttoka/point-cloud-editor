@@ -15,7 +15,7 @@ export interface ViewerApi {
   sendCamera?: (pos: [number, number, number]) => void
 }
 
-function fitDistance(manifest: Manifest, fovDeg: number): number {
+export function fitDistance(manifest: Manifest, fovDeg: number): number {
   const b = manifest.bounds
   const dx = b.max[0] - b.min[0], dy = b.max[1] - b.min[1], dz = b.max[2] - b.min[2]
   const radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2
@@ -65,6 +65,10 @@ export function Scene({ store, buffers, manifest, handle, centroid, api, hudEl }
           powerPreference: props.powerPreference as GPUPowerPreference,
           featureLevel: 'compatibility',
         })
+        if (!adapter) {
+          store.set({ status: 'error', error: 'No WebGPU adapter available.' })
+          throw new Error('No WebGPU adapter')
+        }
         const renderer = new THREE.WebGPURenderer({
           ...(props as Record<string, unknown>),
           antialias: false,

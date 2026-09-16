@@ -6,7 +6,7 @@ import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
 import { centroidOf } from '../render/ChunkSprites'
 import type { Store, ViewerState } from '../state/store'
-import type { ViewerApi } from '../render/Scene'
+import { fitDistance, type ViewerApi } from '../render/Scene'
 
 export interface Loaded {
   manifest: Manifest
@@ -62,12 +62,20 @@ export function useLoader(store: Store<ViewerState>, manifestUrl: string, api: V
         store.set({ status: 'error', error: msg.message })
       }
     }
-    const start: LoaderIn = { type: 'start', binUrl, chunks }
+    // Seed the queue with the same initial camera the scene fits to (centred frame, target origin)
+    // so the first chunks fetched are the ones the camera is actually looking at.
+    const fov = 50
+    const dist = fitDistance(manifest, fov)
+    const dx = 1, dy = -1, dz = 0.8
+    const mag = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    const initPos: [number, number, number] = [(dx / mag) * dist, (dy / mag) * dist, (dz / mag) * dist]
+    const start: LoaderIn = { type: 'start', binUrl, chunks, pos: initPos }
     worker.postMessage(start)
     api.sendCamera = (pos) => { const m: LoaderIn = { type: 'camera', pos }; worker.postMessage(m) }
     return () => {
       const m: LoaderIn = { type: 'dispose' }
       worker.postMessage(m)
+      worker.onmessage = null
       worker.terminate()
       api.sendCamera = undefined
     }

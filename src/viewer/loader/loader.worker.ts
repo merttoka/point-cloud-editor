@@ -10,6 +10,7 @@ ctx.onmessage = (e) => {
   if (msg.type === 'camera') { queue?.setCamera(msg.pos); return }
   if (msg.type === 'dispose') { ac?.abort(); queue = null; return }
   queue = new ChunkQueue(msg.chunks)
+  if (msg.pos) queue.setCamera(msg.pos)
   ac = new AbortController()
   fetchAll(msg.binUrl, queue, {
     fetch: (input, init) => fetch(input, init),

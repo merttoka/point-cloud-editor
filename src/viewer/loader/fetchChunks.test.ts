@@ -93,6 +93,16 @@ describe('fetchAll', () => {
     expect(fetches).toBe(1)
     expect(posted.sort((a, b) => a[0] - b[0])).toEqual([[0, [0, 1, 10, 11, 20, 21]], [1, [30, 31, 40, 41]]])
   })
+  it('start.pos seeds the queue camera so the nearest chunk to pos loads first', async () => {
+    // Mirrors loader.worker.ts: a 'start' message with pos calls queue.setCamera(pos) before fetchAll.
+    const log: string[] = []
+    const q = new ChunkQueue(chunks)
+    q.setCamera([1, 0, 0])   // chunk 1 (centre [1,0,0]) is nearest, chunk 0 (centre [0,0,0]) is farthest
+    const posted: number[] = []
+    await fetchAll('https://x.test/points.bin', q, { fetch: rangeFetch(log), post: (i) => posted.push(i), signal: new AbortController().signal, concurrency: 1 })
+    expect(posted[0]).toBe(1)
+    expect(posted).toEqual([1, 0])
+  })
   it('stops on abort', async () => {
     const ac = new AbortController()
     ac.abort()
