@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type RefObject } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three/webgpu'
 import { color, float, instanceIndex, select, storage, uniform, uint, vec3 } from 'three/tsl'
@@ -6,8 +6,12 @@ import { makeSyntheticCloud } from './synthetic'
 import { dequantScale } from '../viewer/format/quant'
 import { buildFlagsCompute } from './flagsCompute'
 
-export function SpikePoints({ count, size }: { count: number; size: number }) {
-  const points = useMemo(() => {
+export function SpikePoints({ count, size, statusEl }: {
+  count: number
+  size: number
+  statusEl: RefObject<HTMLDivElement | null>
+}) {
+  const { pts, fc } = useMemo(() => {
     console.time('synthetic')
     const cloud = makeSyntheticCloud(count)
     console.timeEnd('synthetic')
@@ -26,8 +30,8 @@ export function SpikePoints({ count, size }: { count: number; size: number }) {
     const fbyte = fword.shiftRight(idx.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))
     const isEast = fbyte.bitAnd(uint(1)).notEqual(uint(0))
 
-    // Path B (brief Step 6): WebGPU point-list is fixed 1px, so draw one billboard quad
-    // per instance (Sprite + instancing); instanceIndex == point index.
+    // WebGPU point-list is fixed 1px, so draw one billboard quad per instance
+    // (Sprite + instancing); instanceIndex == point index.
     const geometry = new THREE.PlaneGeometry(1, 1)
     geometry.setAttribute('qpos', qposAttr)
 
@@ -63,33 +67,27 @@ export function SpikePoints({ count, size }: { count: number; size: number }) {
     // Sprite.intersectsFrustum uses frustum.intersectsSprite (a unit-radius point at the object
     // origin, ignores geometry bounds). Route it through the manual bounding sphere instead.
     pts.intersectsFrustum = (frustum: THREE.Frustum) => frustum.intersectsObject(pts)
-    pts.frustumCulled = true
     ;(pts as any).__spike = { fc, qpos, qposAttr, count, material }
-    return pts
+    return { pts, fc }
   }, [count, size])
 
   const { gl } = useThree()
   useEffect(() => {
     const renderer = gl as unknown as THREE.WebGPURenderer
-    const { fc } = (points as any).__spike as { fc: ReturnType<typeof buildFlagsCompute> }
-    ;(window as any).__spikePoints = points
+    ;(window as any).__spikePoints = pts
     let cancelled = false
     ;(async () => {
-      const hasTs = renderer.hasFeature('timestamp-query')
       const t0 = performance.now()
       await renderer.computeAsync(fc.computeNode)
       const submitMs = performance.now() - t0   // computeAsync does not await GPU completion: encode+submit only
-      let gpuMs: number | undefined
-      if (hasTs) {
-        gpuMs = await renderer.resolveTimestampsAsync(THREE.TimestampQuery.COMPUTE)
-        if (gpuMs === undefined) gpuMs = renderer.info.compute.timestamp
-      }
-      if (cancelled) return
-      const el = document.getElementById('compute')
-      if (el) el.textContent = `flags compute: ${fc.words} words, submit ${submitMs.toFixed(2)} ms, gpu ${gpuMs?.toFixed(3) ?? 'n/a (no timestamp-query)'} ms`
+      const gpuMs = renderer.hasFeature('timestamp-query')
+        ? await renderer.resolveTimestampsAsync(THREE.TimestampQuery.COMPUTE)
+        : undefined
+      if (cancelled || !statusEl.current) return
+      statusEl.current.textContent = `flags compute: ${fc.words} words, submit ${submitMs.toFixed(2)} ms, gpu ${gpuMs?.toFixed(3) ?? 'n/a (no timestamp-query)'} ms`
     })()
     return () => { cancelled = true }
-  }, [gl, points])
+  }, [gl, pts, fc, statusEl])
 
-  return <primitive object={points} />
+  return <primitive object={pts} />
 }

@@ -16,7 +16,7 @@ npm run build
 `.npmrc` sets `legacy-peer-deps=true`: @react-three/fiber@9.7.0 peer range (`react >=19 <19.3`) excludes pinned react@19.3.0.
 
 ## Spike params
-`?n=2000000&size=3` — point count, point size px.
+`?n=2000000&size=3` — point count (default 2M, max 30M), point size px (default 3, max 32).
 
 ## Spike results
 Synthetic cloud, Apple M4 Max, Chromium 153 (headless Playwright), DPR 1, size 3 px, Sprite-quad path (4 verts/pt), `requiredLimits.maxStorageBufferBindingSize` = adapter limit. Full notes: `docs/ARCHITECTURE.md`.

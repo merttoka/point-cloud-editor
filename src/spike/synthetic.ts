@@ -37,9 +37,10 @@ export function makeSyntheticCloud(count: number, seed = 1): SyntheticCloud {
     let cls: number
     if (r < 0.1) {
       // building: snap XY to a 50 m grid cell footprint (30x30), roof or wall
-      const cx = Math.floor(x / 50) * 50 + 10
-      const cy = Math.floor(y / 50) * 50 + 10
-      const h = 15 + ((Math.floor(x / 50) * 7 + Math.floor(y / 50) * 13) % 25)
+      const gx = Math.floor(x / 50), gy = Math.floor(y / 50)
+      const cx = gx * 50 + 10
+      const cy = gy * 50 + 10
+      const h = 15 + ((gx * 7 + gy * 13) % 25)
       const base = ground(cx + 15, cy + 15)
       if (rand() < 0.6) {
         x = cx + rand() * 30; y = cy + rand() * 30; z = base + h
