@@ -12,7 +12,7 @@ describe('colormaps', () => {
     const [r0, , b0] = turbo(0)
     expect(r0).toBeLessThan(0.3); expect(b0).toBeGreaterThan(0.1)
     const [r1, g1, b1] = turbo(1)
-    expect(r1).toBeGreaterThan(0.4); expect(g1).toBeLessThan(0.15); expect(b1).toBeLessThanOrEqual(1)
+    expect(r1).toBeGreaterThan(0.4); expect(g1).toBeLessThan(0.15); expect(b1).toBeLessThan(0.15)
   })
   it('grayscale is linear', () => {
     expect(grayscale(0.5)).toEqual([0.5, 0.5, 0.5])

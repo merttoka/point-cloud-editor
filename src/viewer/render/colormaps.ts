@@ -27,7 +27,7 @@ export function viridis(t: number): RGB {
 // Turbo polynomial approximation (Google, A. Mikhailov), sRGB in [0,1]
 const TR4 = [0.13572138, 4.6153926, -42.66032258, 132.13108234], TR2 = [-152.94239396, 59.28637943]
 const TG4 = [0.09140261, 2.19418839, 4.84296658, -14.18503333], TG2 = [4.27729857, 2.82956604]
-const TB4 = [0.1066733, 12.64194608, -60.58204836, 110.36276771], TB2 = [-89.90310912, 41.04993063]
+const TB4 = [0.1066733, 12.64194608, -60.58204836, 110.36276771], TB2 = [-89.90310912, 27.34824973]
 export function turbo(t: number): RGB {
   const x = clamp01(t)
   const v4 = [1, x, x * x, x * x * x], v2 = [x ** 4, x ** 5]
