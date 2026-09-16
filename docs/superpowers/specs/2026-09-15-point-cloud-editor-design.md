@@ -63,8 +63,8 @@ u8 per point, packed 4/u32 in a storage buffer (bits: hidden, selected, deleted,
 ### Memory budget (20M)
 | buffer | GPU | CPU |
 |---|---|---|
-| positions (8 B) | 160 MB (152.6 MiB, measured phase 0) | 160 MB (worker) |
-| flags (u8, packed 4/u32) | 20 MB (19.1 MiB, measured phase 0) | 20 MB |
+| positions (8 B) | 160 MB (152.6 MiB, computed phase 0) | 160 MB (worker) |
+| flags (u8, packed 4/u32) | 20 MB (19.1 MiB, computed phase 0) | 20 MB |
 | normals (oct u32) | 80 MB (est.) | — |
 | AO (u8→u32 packed) | 20 MB (est.) | — |
 | undo ring | — | ≤256 MB cap |

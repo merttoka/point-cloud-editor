@@ -6,10 +6,12 @@ Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, 
 Phase 0 done: spike results in docs/ARCHITECTURE.md.
 
 ## Setup
+```bash
 npm install
 npm run dev        # Chrome with WebGPU
 npm test
 npm run build
+```
 
 `.npmrc` sets `legacy-peer-deps=true`: @react-three/fiber@9.7.0 peer range (`react >=19 <19.3`) excludes pinned react@19.3.0.
 
