@@ -3,7 +3,7 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 0 done: spike results in docs/ARCHITECTURE.md.
+Phase 1 done: Vancouver downtown dataset on release v0.1-data; preprocess tools in tools/.
 
 ## Setup
 ```bash
@@ -14,6 +14,34 @@ npm run build
 ```
 
 `.npmrc` sets `legacy-peer-deps=true`: @react-three/fiber@9.7.0 peer range (`react >=19 <19.3`) excludes pinned react@19.3.0.
+
+## Data
+
+Demo (2M points, 16 MB) and full (20M, 160 MB) datasets are GitHub Release assets (`v0.1-data`):
+
+```bash
+npm run data:demo   # → public/data/demo/{manifest.json,points.bin}
+npm run data:full   # → public/data/full/
+```
+
+Source: City of Vancouver LiDAR 2022, tile `491000_5458000` (downtown), UTM 10N metres, ~49 pts/m².
+Contains information licensed under the Open Government Licence – Vancouver (https://opendata.vancouver.ca/pages/licence/).
+Switched from USGS 3DEP to Vancouver open data: every 3DEP candidate tile only carries baseline classes (no building/vegetation).
+
+### Rebuilding from the raw tile
+
+```bash
+python3 -m venv tools/.venv && tools/.venv/bin/pip install -r tools/requirements.txt
+tools/.venv/bin/python tools/fetch.py --list --near 491500 5458500        # tile names + URLs
+# download https://webtransfer.vancouver.ca/opendata/2022LiDAR/491000_5458000.zip in a browser
+# (the host serves a Cloudflare browser challenge to scripts)
+tools/.venv/bin/python tools/fetch.py --import ~/Downloads/491000_5458000.zip --name vancouver-downtown
+tools/.venv/bin/python tools/preprocess.py data/raw/vancouver-downtown.las data/processed/vancouver-downtown --stats
+tools/.venv/bin/python tools/preprocess.py data/raw/vancouver-downtown.las data/processed/vancouver-downtown \
+  --max-points 20000000 --demo 2000000 --cell-size 64
+tools/.venv/bin/pytest tools/tests
+```
+Preprocess of the raw tile (51,494,885 points → 20M + 2M) takes 8.3 s on an M4 Max.
 
 ## Spike params
 `?n=2000000&size=3` — point count (default 2M, max 30M), point size px (default 3, max 32).

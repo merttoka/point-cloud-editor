@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "data:demo": "node scripts/fetch-data.mjs demo",
+    "data:full": "node scripts/fetch-data.mjs full"
   },
   "dependencies": {
     "@react-three/drei": "10.7.8",
