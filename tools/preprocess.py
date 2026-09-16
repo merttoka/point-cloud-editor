@@ -46,7 +46,7 @@ def pack_attr(intensity8: np.ndarray, cls: np.ndarray) -> np.ndarray:
     return (intensity8.astype(np.uint16) | (cls.astype(np.uint16) << 8)).astype(np.uint16)
 
 
-_UNIT_RE = re.compile(r'(?:LENGTH)?UNIT\["([^"]+)"')
+_UNIT_RE = re.compile(r'(?<![A-Z])(?:LENGTH)?UNIT\["([^"]+)"')
 _VERT_RE = re.compile(r"VERT_?CS\[|VERTCRS\[")
 GEOTIFF_UNITS = {9001: 1.0, 9002: FT_INTL, 9003: FT_US}
 EXPLICIT_UNITS = {"m": 1.0, "ft": FT_INTL, "ftus": FT_US}

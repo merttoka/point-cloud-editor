@@ -59,6 +59,12 @@ def test_units_from_wkt2_lengthunit():
     assert units_from_wkt(wkt) == (1.0, None)
 
 
+def test_units_from_wkt2_lengthunit_before_angleunit():
+    wkt = ('PROJCRS["x",CS[Cartesian,2],AXIS["(E)",east,LENGTHUNIT["metre",1]],AXIS["(N)",north,LENGTHUNIT["metre",1]],'
+           'BASEGEOGCRS["NAD83",ANGLEUNIT["degree",0.0174532925199433]]]')
+    assert units_from_wkt(wkt) == (1.0, None)
+
+
 def test_resolve_units_wkt(synthetic_las):
     u = resolve_units(laspy.read(synthetic_las["wkt_ftus"]).header)
     assert (u.xy, u.z, u.source) == (FT_US, FT_US, "wkt")
