@@ -1,7 +1,7 @@
 # Point Cloud Editor — Design Spec
 
 Date: 2026-09-15
-Status: approved (brainstorm + review pass)
+Status: approved (brainstorm + review pass); amended after phase 0 spike (findings in `docs/ARCHITECTURE.md`)
 
 ## Goal
 
@@ -11,7 +11,7 @@ Clean-room WebGPU point cloud viewer/editor. Portfolio piece demonstrating produ
 
 - Written from scratch. Public techniques + public data only. No reference to any NDA material.
 - Data: USGS 3DEP LiDAR. Tile priority: Los Angeles → Santa Barbara → San Francisco → NYC (by availability, must include building + vegetation classes; NYC 2017 is the safe fallback). Raw LAZ never committed.
-- Stack (pinned, exact): `three@0.186.0`, `@react-three/fiber@9.7.0`, `@react-three/drei@10.7.8`, `react@19.3.0`, `vite@8.3.0`, TypeScript. Three via R3F on `WebGPURenderer`; compute kernels in raw WGSL via TSL `wgslFn` + `storage()` nodes (no internal backend API). Extra deps approved: `vitest`, `pytest`, `fflate` (export zip). Debug panel hand-rolled (no leva). Python venv: laspy[lazrs], pyarrow, numpy, scipy.
+- Stack (pinned, exact): `three@0.186.0`, `@react-three/fiber@9.7.0`, `@react-three/drei@10.7.8`, `react@19.3.0`, `vite@8.3.0`, TypeScript. Three via R3F on `WebGPURenderer`; compute kernels in raw WGSL via TSL `wgslFn` + `storage()` nodes (no internal backend API). Extra deps approved: `vitest`, `pytest`, `fflate` (export zip). `.npmrc`: `legacy-peer-deps=true` (fiber 9.7.0 peer range `react >=19 <19.3` excludes react 19.3.0) + `save-exact=true`. Debug panel hand-rolled (no leva). Python venv: laspy[lazrs], pyarrow, numpy, scipy.
 - **WebGPU required.** No WebGL fallback. Unsupported browser → message. CPU compute path is benchmark-only (see §3).
 - Embeddable: `src/viewer/` self-contained (CSS modules, no global CSS), `PointCloudViewer` props `{ manifestUrl, theme?, className? }`. Lab will copy the folder and add three/R3F deps. Keyboard shortcuts focus-scoped to the viewer element (never hijack host page).
 - Repo: `github.com/merttoka/point-cloud-editor`, public, MIT. Local folder `~/Developer/Graphics/TS_PointCloud`.
@@ -33,7 +33,7 @@ Clean-room WebGPU point cloud viewer/editor. Portfolio piece demonstrating produ
 ```
 [u16 x][u16 y][u16 z][u16 packed = intensity | (class << 8)]
 ```
-Read on GPU as a single `uint16x4` vertex attribute (WebGPU has no 16-bit ×3 format). Byte layout identical to `[u8 intensity][u8 class]`.
+Loaded as `Uint32Array` (2 words/pt, `x | y<<16`, `z | packed<<16`; words layout = disk bytes) into a `StorageInstancedBufferAttribute`; render reads it as a `uint32x2` instanced attribute and bit-unpacks (`x = w.x & 0xffff`, `y = w.x >> 16`, `z = w.y & 0xffff`, `cls = (w.y >> 24) & 0xff`); compute reads the same buffer as `array<vec2<u32>>`. Point index = `instanceIndex` in both stages. (`uint16x3` is not a WebGPU vertex format; `uint16x4` would block compute reads since WGSL has no u16.) Byte layout of `packed` identical to `[u8 intensity][u8 class]`.
 
 ### Manifest (`manifest.json`)
 ```json
@@ -52,23 +52,23 @@ Export writes the same format: deleted points dropped, one chunk, same quantizat
 ### Module layout (`src/viewer/`)
 - `PointCloudViewer.tsx` — public component.
 - `loader/` — manifest fetch; chunk streaming (concurrency 4, priority by camera distance to chunk AABB center, queue re-sorted on camera move, AbortController on unmount); each chunk → GPU immediately (progressive). Worker owns the CPU copy (needed by CPU benchmark path); main thread gets a transferred copy for upload.
-- `render/` — R3F `<Canvas>` with `WebGPURenderer`; one `Points` per chunk, `uint16x4` attribute, `dequant` uniform (`min`, `scale`), `chunkBase` uniform (global index = `chunkBase + instance_index`). World centred at bounds centroid (float32 jitter). `geometry.boundingSphere` set manually from manifest chunk bounds (Three can't derive it; needed for frustum culling). `drawRange` per chunk = point-budget slider (0–100%). Point size (px) with perspective attenuation + min/max clamp. Note: WebGPU has no point size; Three renders sized `Points` as instanced quads → 4–6× vertex load, verified in phase 0 spike.
+- `render/` — R3F `<Canvas>` with `WebGPURenderer` constructed with `requiredLimits: { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize }` (query `navigator.gpu.requestAdapter()` first; omit `requiredLimits` if adapter is null). The WebGPU default of 128 MiB caps a single storage binding at 16,777,216 pts (`N×8` B positions); passing the adapter's own limit unblocks 20M compute (verified phase 0; alternative: chunk storage bindings). One `THREE.Sprite` per chunk with `PointsNodeMaterial` (`sizeNode` = CSS px, `sizeAttenuation=false`) over a `PlaneGeometry` with the instanced `uint32x2` `qpos` attribute (`StorageInstancedBufferAttribute`, 2 words/pt), `dequant` uniform (`min`, `scale`), `chunkBase` uniform (global index = `chunkBase + instanceIndex`). World centred at bounds centroid (float32 jitter). `geometry.boundingBox/boundingSphere` set manually from manifest chunk bounds (Three can't derive it) **and** `sprite.intersectsFrustum` overridden to `frustum.intersectsObject(sprite)` — stock `Sprite` culling uses a unit sphere at the object origin and ignores geometry bounds (verified phase 0: off-screen → `tris 1`). Manual chunk visibility from manifest AABB vs frustum remains an option. `count` per chunk = point-budget slider (0–100%; instance count, since draw is 1 quad × N instances). Point size in px with min/max clamp (perspective attenuation via `sizeNode`, `sizeAttenuation` stays off). Mechanism note (phase 0): `THREE.Points` + `sizeNode` is always 1 px on WebGPU (`PointsNodeMaterial` docs); `PointsNodeMaterial` on a `Sprite` takes `setupVertexSprite` → true pixel size, 4 verts/pt (2 tris; `tris = 2N + 1`, the +1 is the renderer's output blit quad). `SpriteNodeMaterial.scaleNode` is world units × `-viewZ`, not px — don't use it for point size.
 - `compute/` — WGSL passes + CPU worker equivalents.
 - `edit/` — selection, ops, undo, export.
 - `ui/` — control panel, perf/debug HUD, CSS modules. Theme via `theme` prop (or `data-theme` on ancestor) → CSS vars mirroring Lab tokens.
 
 ### Per-point state (`flags`)
-u8 per point, packed 4/u32 in a storage buffer (bits: hidden, selected, deleted, splitA, splitB). CPU `Uint8Array` mirror is source of truth; after any edit, upload dirty range `[minIdx, maxIdx]` only. Hidden/deleted → vertex moved outside clip in shader (no compaction).
+u8 per point, packed 4/u32 in a storage buffer (bits: hidden, selected, deleted, splitA, splitB). CPU `Uint8Array` mirror is source of truth; after any edit, upload dirty range `[minIdx, maxIdx]` only. Hidden/deleted → vertex moved outside clip in shader (no compaction). Vertex read: `flags[idx >> 2] >> ((idx & 3) * 8) & 0xff`. Packed-u8 writes from compute are thread-per-word (dispatch `ceil(N/4)`, each thread stores one whole word) or `atomicOr`/`atomicAnd` on a `storage(...).toAtomic()` node; never plain per-byte stores. The same `storage()` node is bound `read_write` in compute and `read` in vertex automatically — do not call `toReadOnly()` on it (mutates the node).
 
 ### Memory budget (20M)
 | buffer | GPU | CPU |
 |---|---|---|
-| positions (8 B) | 160 MB | 160 MB (worker) |
-| flags (u8) | 20 MB | 20 MB |
-| normals (oct u32) | 80 MB | — |
-| AO (u8→u32 packed) | 20 MB | — |
+| positions (8 B) | 160 MB (152.6 MiB, computed phase 0) | 160 MB (worker) |
+| flags (u8, packed 4/u32) | 20 MB (19.1 MiB, computed phase 0) | 20 MB |
+| normals (oct u32) | 80 MB (est.) | — |
+| AO (u8→u32 packed) | 20 MB (est.) | — |
 | undo ring | — | ≤256 MB cap |
-~280 MB GPU, ~450 MB CPU worst case. OK on M1 unified; documented in README.
+Phase 0 measured at 20M: computed GPU buffers 171.7 MiB (pos + flags); GPU-process RSS delta +77.4 MiB as a loose proxy (unified memory, not a VRAM reading). Projected with normals + AO ~280 MB GPU, ~450 MB CPU worst case. OK on M4 Max unified; documented in README.
 
 ### Colormaps
 256×1 LUT textures: height + intensity use continuous maps (viridis, turbo, grayscale); classification uses categorical ASPRS palette. Mode + LUT selectable in panel.
@@ -81,13 +81,13 @@ drei `OrbitControls`, auto-fit to manifest bounds on load, damping on.
 
 ## 3. GPU compute
 
-All passes: TSL `storage()` nodes over Three attributes + `wgslFn` kernels, dispatched with Three's compute API on the renderer's device. No readback except where stated. Runs **on demand after load completes**, over all loaded points (per-chunk compute would seam at chunk borders).
+All passes: TSL `storage()` nodes over Three attributes + raw WGSL `wgslFn` kernels with `ptr<storage, array<T>, read_write>` params (verified phase 0; no pure-TSL fallback needed), dispatched with Three's compute API on the renderer's device. Kernel rule: every `wgslFn` kernel entry **returns a value and is `.toVar()`-ed** (or the store is done in TSL: `flags.element(i).assign(wgslFn(...))`) — void `wgslFn` calls are silently dropped by three 0.186 (`FunctionCallNode` never emits its own statement). Storage params are passed as a named object; the point/word index is `instanceIndex` (= `globalId.x`). No readback except where stated. Runs **on demand after load completes**, over all loaded points (per-chunk compute would seam at chunk borders).
 
 1. `hash_build.wgsl` — cell key per point (cell = search radius), hashed to table of size T = next pow2 ≥ 2·N (collisions merge cells; distance test filters, no chaining). Histogram → prefix scan (reduce-then-scan, 3 dispatches) → scatter → sorted indices + cell start offsets.
 2. `normals.wgsl` — per point: visit 27 neighbour cells, keep k=16 nearest (register insertion sort), covariance, smallest eigenvector via Jacobi 3×3, orient toward +Z; write oct-encoded normal (u32). Camera-facing flip done in vertex shader (`dot(n, viewDir) < 0`).
 3. `ao.wgsl` — per point (needs normals): fraction of neighbours within radius above tangent plane → occlusion term.
 
-Timing: Three `resolveTimestampsAsync(TimestampQuery.COMPUTE)` per pass (feature-detected). Shading modes: flat, normal-lit, normal-lit + AO.
+Timing: Three `resolveTimestampsAsync(TimestampQuery.COMPUTE)` per pass (`timestamp-query` available on the target machine, verified phase 0; feature-detect anyway; requires `trackTimestamp: true` at renderer construction). `computeAsync` does not await GPU completion — its CPU time is labelled "submit", the GPU number comes only from the timestamp resolve (Metal quantises to ~0.066 ms steps). Shading modes: flat, normal-lit, normal-lit + AO.
 
 ### CPU benchmark path
 Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not a compat path.** Capped at 2M points (demo set, or first-N prefix of each chunk on the full set); progress + cancel. Debug panel table: pass × {GPU ms, CPU ms, N}. "Verify" button: runs both on the same N, reports max angular normal diff + AO MAE (correctness evidence for README).
@@ -103,8 +103,8 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 
 ## 5. Perf & docs
 
-- HUD: frame ms (EMA), FPS, draw calls, loaded/total points, point budget %, last compute pass ms.
-- README perf table (M1 baseline): load time, FPS at 2M / 10M / 20M (via budget slider on full set), normals + AO ms GPU vs CPU @2M, lasso ms, GPU memory.
+- HUD: frame ms (EMA), FPS, draw calls, loaded/total points, point budget %, last compute pass ms. `renderer.info.autoReset=false` and reset after reading (three's internal rAF races r3f's loop); `draws` floor is 1 / `tris` +1 from the WebGPURenderer output blit.
+- README perf table (M4 Max baseline; spike row pre-filled from phase 0: 2M ~5–6 ms / ~160–200 fps, 10M 25 ms / 41 fps, 20M 65 ms / 15 fps at size 3, synthetic, DPR 1): load time, FPS at 2M / 10M / 20M (via budget slider on full set), normals + AO ms GPU vs CPU @2M, lasso ms, GPU memory.
 - README: setup, data download + preprocess instructions, controls, screenshots/webm, perf table, memory budget.
 - `docs/ARCHITECTURE.md`: data flow, point/manifest format, compute pipeline, editing/undo model. Updated each phase.
 
@@ -116,7 +116,7 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 
 ## 7. Phases (one branch → merge to main each)
 
-0. **scaffold + spike** — Vite/R3F/WebGPU hello, repo, MIT, pinned deps. Spike proves: `uint16x4` attribute renders; sized points (quad mechanism + cost at 2M synthetic); `wgslFn` compute writes a storage attribute Three then renders; timestamp query works. Findings → ARCHITECTURE.md. Any failure here revises this spec before phase 1.
+0. **scaffold + spike** — Vite/R3F/WebGPU hello, repo, MIT, pinned deps. Spike proved: `uint32x2` packed attribute renders; sized points (Sprite quad mechanism, 4 verts/pt, cost at 2M/10M/20M synthetic); `wgslFn` compute writes a storage attribute Three then renders; timestamp query works; `requiredLimits` needed above 2^24 pts. Findings → ARCHITECTURE.md; this spec amended accordingly. **Done.**
 1. **preprocess** — tools, `--stats`, packed bin + offsets, demo dataset, tests. Verify Range + CORS on release asset.
 2. **viewer** — streaming, orbit, budget slider, point size, colormaps, flags buffer.
 3. **edl** — post pass, params, toggle.
