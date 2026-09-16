@@ -24,6 +24,10 @@ export function SpikeApp() {
             ...(props as Record<string, unknown>),
             antialias: false,
             trackTimestamp: true,
+            // Default maxStorageBufferBindingSize (128 MiB) is too small for the qpos storage
+            // buffer at 20M points (160 MB); raise it so the flags compute pass's bind group is
+            // valid. 1 GiB is comfortably under the adapter's reported max (~4 GiB on M4 Max).
+            requiredLimits: { maxStorageBufferBindingSize: 1 << 30, maxBufferSize: 1 << 30 },
           })
           await renderer.init()
           return renderer
