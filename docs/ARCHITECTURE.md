@@ -1,5 +1,34 @@
 # Architecture
 
+## Deferred
+
+Known gaps carried across phases. Each entry names the owner phase (or "any") and what triggers the fix.
+
+**Hosting / embedding**
+- Release `v0.1-data` assets have no `access-control-allow-origin` (both hops). The viewer loads same-origin from `public/data/`; a cross-origin host (website static + `.htaccess` CORS, or a bucket) is needed before the Lab embed. Owner: Phase 6. Note: the 160 MB full bin can't go through the `portfolio-web` git repo (GitHub 100 MB limit).
+- `check_hosting.py` acceptance "passes on both bins" and Phase 2 "full set streams with 206 from the release URL" are unmet by design (same-origin only; Range path covered by mocked-fetch vitests and Vite's 206 responses).
+
+**Renderer / GPU lifetime**
+- r3f 9.7 never calls `gl.dispose()` on a `WebGPURenderer` at `<Canvas>` unmount; renderer + `qpos`/`flags` buffers live until page unload (see "GPU lifetime"). Owner: whichever phase adds remount/dataset switching (Phase 5 export re-open is the first candidate). Phases 3–4 add a `RenderPipeline` and ~214 MB of compute buffers to the same leak.
+- `DatasetLimitCheck` reads `renderer.backend.device.limits` — a second backend read beyond the `compatibilityMode` one the spec allows. Replace with `renderer.getDevice?.()`/adapter limits captured in the factory if three exposes one. Owner: any.
+- `<Scene>` has no `key={manifestUrl}`; the cached renderer + `DatasetLimitCheck` handle a manifest swap, but sprites/material are rebuilt through `loaded` identity only. Owner: Phase 5 (export re-open).
+
+**Loader**
+- After ≥1 chunk uploaded, a worker `error` leaves `status` at `'loading'` forever (only `error` text is set; nothing gates on `status === 'loading'` today). Owner: any UI that adds a loading overlay.
+- `url` is not re-synced to a fresh `response.url` after an origin retry; the discovery fetch is not retried; a mid-flight abort is untested; sibling workers are not cancelled on a chunk error. All cost/coverage only.
+- `loader.worker.ts` `if (msg.pos)` seeding and the worker entry have no unit test (module workers aren't testable under the node vitest env); browser-verified via the first-five-chunk log.
+- `validateManifest` accepts `count ≤ 0`, non-integers and `pointCount === 0` (→ `storage(..., 0)`).
+
+**Viewer UI**
+- `id="hud"` on the viewer root child duplicates with several viewers on one page; the Playwright checks read `#hud`. Switch to `data-pcv-hud` + a bench handle in Phase 6.
+- `H` toggles the HUD (Phase 2) but the Phase 5 spec assigns `H` = hide — see the spec review.
+- No unit tests for `Panel`, `useLoader`; `ASPRS_FALLBACK` is named in the Phase 2 Interfaces but the code uses `ASPRS_COLORS[-1]`.
+
+**Tools (Phase 1)**
+- `check_hosting.walk()` has only a DNS-failure test (no local-http-server redirect test); `evaluate([])` raises; hop-cap exhaustion is silent.
+- `--stats` zero-intensity "no division warning" is not asserted; `rec.astype("<u2")` makes a redundant 160 MB copy; the DNS-failure test does a live `.invalid` lookup (slow on sandboxed resolvers).
+- `--import` derives the tile URL from the zip stem (`--url` overrides); a malformed zip prints a raw traceback.
+
 ## Viewer (phase 2)
 
 Machine: Apple M4 Max, macOS 25.6.0, Chromium (Playwright MCP), Vite dev server on `localhost:5173`. Demo manifest: 2,000,000 pts / 256 chunks, 16 MB `points.bin`. Full manifest: 20,000,000 pts / 256 chunks, 160 MB `points.bin` (`npm run data:full`; already present for this task, 160,000,000-byte `points.bin` verified via `ls -l`).
