@@ -117,6 +117,8 @@ describe('params', () => {
     const sub = benchWords(words, chunks, 4)     // 2 per chunk
     expect(Array.from(sub)).toEqual([0, 1, 2, 3, 10, 11, 12, 13])
     expect(benchWords(words, chunks, 10)).toBe(words)   // n >= total: same array, no copy
+    const uneven = [{ offset: 0, count: 1 }, { offset: 1, count: 1 }, { offset: 2, count: 8 }]
+    expect(Array.from(benchWords(words, uneven, 6))).toEqual([0, 1, 2, 3, 4, 5, 6, 7])   // short chunks are not padded
   })
   it('constants', () => { expect(K).toBe(16); expect(BENCH_CAP).toBe(2_000_000) })
 })
@@ -206,11 +208,13 @@ export function benchWords(words: Uint32Array, chunks: { offset: number; count: 
   if (n >= total) return words
   const per = Math.floor(n / chunks.length)
   const out = new Uint32Array(per * chunks.length * WORDS_PER_POINT)
-  chunks.forEach((c, i) => {
-    const take = Math.min(per, c.count)
-    out.set(words.subarray(c.offset * WORDS_PER_POINT, (c.offset + take) * WORDS_PER_POINT), i * per * WORDS_PER_POINT)
-  })
-  return out
+  let written = 0
+  for (const c of chunks) {                     // chunks shorter than `per` contribute fewer points; never pad
+    const take = Math.min(per, c.count) * WORDS_PER_POINT
+    out.set(words.subarray(c.offset * WORDS_PER_POINT, c.offset * WORDS_PER_POINT + take), written)
+    written += take
+  }
+  return written === out.length ? out : out.slice(0, written)
 }
 ```
 
