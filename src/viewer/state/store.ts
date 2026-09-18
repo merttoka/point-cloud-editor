@@ -4,6 +4,8 @@ import type { Manifest } from '../loader/manifest'
 export type ColorMode = 'height' | 'intensity' | 'class'
 export type Colormap = 'viridis' | 'turbo' | 'grayscale'
 
+export interface EdlState { enabled: boolean; radiusPx: number; strength: number }
+
 export interface ViewerState {
   manifest: Manifest | null
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -14,6 +16,7 @@ export interface ViewerState {
   colorMode: ColorMode
   colormap: Colormap
   showHud: boolean
+  edl: EdlState
 }
 
 export const initialState: ViewerState = {
@@ -25,6 +28,7 @@ export const initialState: ViewerState = {
   colorMode: 'height',
   colormap: 'viridis',
   showHud: true,
+  edl: { enabled: true, radiusPx: 1.5, strength: 1 },
 }
 
 export interface Store<T> {
