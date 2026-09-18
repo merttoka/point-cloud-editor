@@ -1,7 +1,5 @@
-import { K } from '../params'
-
 // CPU mirror of wgsl/hash.ts: same key, same cell = floor(p / radius) in bounds-relative metres, same
-// insertion-sorted kNN. Reference for the GPU readback in Verify and the algorithm the benchmark times.
+// 27-cell radius traversal. Reference for the GPU readback in Verify and the algorithm the benchmark times.
 
 export interface Grid { cellStart: Uint32Array; sorted: Uint32Array; radius: number; mask: number }
 
@@ -59,21 +57,4 @@ export function forEachNeighbour(g: Grid, pos: Float32Array, i: number, r2: numb
       if (d2 <= r2) visit(j, d2)
     }
   }
-}
-
-export function knn(g: Grid, pos: Float32Array, i: number, k = K): { idx: Uint32Array; d2: Float32Array; n: number } {
-  const idx = new Uint32Array(k), d2s = new Float32Array(k)
-  let n = 0
-  forEachNeighbour(g, pos, i, g.radius * g.radius, (j, d2) => {
-    if (n < k) {
-      let m = n
-      while (m > 0 && d2s[m - 1] > d2) { d2s[m] = d2s[m - 1]; idx[m] = idx[m - 1]; m-- }
-      d2s[m] = d2; idx[m] = j; n++
-    } else if (d2 < d2s[k - 1]) {
-      let m = k - 1
-      while (m > 0 && d2s[m - 1] > d2) { d2s[m] = d2s[m - 1]; idx[m] = idx[m - 1]; m-- }
-      d2s[m] = d2; idx[m] = j
-    }
-  })
-  return { idx, d2: d2s, n }
 }

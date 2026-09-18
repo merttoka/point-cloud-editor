@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cellKey, exclusiveScan, buildGrid, knn, decodePositions, forEachNeighbour } from './hash'
+import { cellKey, exclusiveScan, buildGrid, decodePositions, forEachNeighbour } from './hash'
 import { packWords } from '../../format/quant'
 
 function rand(seed: number) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32 } }
@@ -48,27 +48,6 @@ describe('buildGrid', () => {
         if (dx * dx + dy * dy + dz * dz <= r * r) want.add(j)
       }
       expect(got).toEqual(want)
-    }
-  })
-})
-
-describe('knn', () => {
-  it('returns the same neighbour set as brute force (10k points, k=16)', () => {
-    const n = 10000, pos = cloud(n, 5), r = 2.5, g = buildGrid(pos, n, r, 2048)
-    for (const i of [0, 123, 4567, 9999]) {
-      const res = knn(g, pos, i, 16)
-      const brute = [] as { j: number; d2: number }[]
-      for (let j = 0; j < n; j++) {
-        if (j === i) continue
-        const dx = pos[j * 3] - pos[i * 3], dy = pos[j * 3 + 1] - pos[i * 3 + 1], dz = pos[j * 3 + 2] - pos[i * 3 + 2]
-        const d2 = dx * dx + dy * dy + dz * dz
-        if (d2 <= r * r) brute.push({ j, d2 })
-      }
-      brute.sort((a, b) => a.d2 - b.d2)
-      const want = brute.slice(0, 16).map((b) => b.j)
-      expect(res.n).toBe(want.length)
-      expect(new Set(Array.from(res.idx.subarray(0, res.n)))).toEqual(new Set(want))
-      for (let m = 1; m < res.n; m++) expect(res.d2[m]).toBeGreaterThanOrEqual(res.d2[m - 1])
     }
   })
 })

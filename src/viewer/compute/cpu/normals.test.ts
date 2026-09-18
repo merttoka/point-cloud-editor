@@ -74,6 +74,16 @@ describe('normalAt / computeNormals', () => {
     expect(worst).toBeLessThan(1)
     expect(flipped).toBe(0)
   })
+  it('noisy vertical facade: normal is horizontal within 10° (radius PCA, no K cap)', () => {
+    // wall x = 20 ± 0.15 m depth noise, 3 m × 3 m patch at 1 pt / 0.25 m, plus a roof line at z = 33 leaking in
+    const pts: number[] = []
+    let s = 21; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32 }
+    for (let y = 0; y < 12; y++) for (let z = 0; z < 12; z++) pts.push(20 + (r() - 0.5) * 0.3, 10 + y * 0.25, 30 + z * 0.25)
+    for (let y = 0; y < 12; y++) pts.push(19.5 + r() * 0.5, 10 + y * 0.25, 33.1)
+    const pos = new Float32Array(pts), n = pos.length / 3, g = buildGrid(pos, n, 1.0, 1024)
+    const v = normalAt(g, pos, 12 * 6 + 6)           // mid-wall point
+    expect(Math.abs(v[2])).toBeLessThan(Math.sin(10 * Math.PI / 180))
+  })
   it('isolated point → +Z', () => {
     const pos = new Float32Array([5, 5, 5, 50, 50, 50, 50.1, 50, 50])
     const g = buildGrid(pos, 3, 1, 1024)
