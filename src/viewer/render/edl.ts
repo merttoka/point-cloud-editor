@@ -39,12 +39,11 @@ const DIRS = Array.from({ length: EDL_TAPS }, (_, k) => {
 
 // colour: the pass colour texture node; depthTex: `scenePass.getTextureNode('depth')` (raw depth, sampled at offsets).
 // Runs in the pipeline quad's fragment stage, where `uv()` is the screen uv and `screenSize` the drawing-buffer size.
-export function edlShadeNode(colour: Node, depthTex: TextureNode, u: EdlUniforms): Node {
-  const col = colour as unknown as Node<'vec4'>          // arbitrary colour node from the pass; cast once for .mul
+export function edlShadeNode(colour: Node<'vec4'>, depthTex: TextureNode, u: EdlUniforms): Node {
   return Fn(() => {
     const uv0 = uv()
     const bg = u.far.mul(BACKGROUND)
-    const viewDist = (at: Node) => perspectiveDepthToViewZ(depthTex.sample(at).r, u.near, u.far).negate()
+    const viewDist = (at: Node<'vec2'>) => perspectiveDepthToViewZ(depthTex.sample(at).r, u.near, u.far).negate()
     const logDepth = (dist: Node<'float'>) => log2(max(dist, u.near))
 
     const c = viewDist(uv0).toVar()
@@ -59,6 +58,6 @@ export function edlShadeNode(colour: Node, depthTex: TextureNode, u: EdlUniforms
     obs = obs.div(EDL_TAPS)
     const shade = exp(u.strength.mul(obs).mul(EDL_SCALE).div(u.radiusPx).negate())
     const shadeOrSky = select(c.greaterThanEqual(bg), float(1), shade)
-    return col.mul(shadeOrSky)
+    return colour.mul(shadeOrSky)
   })()
 }

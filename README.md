@@ -5,7 +5,7 @@ Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, 
 ## Status
 Phase 3 done: eye-dome lighting post pass (toggle, radius, strength).
 
-2M: 240 fps (vsync) · 20M: 33.68 ms off / 33.04 ms on at 100 % budget, 17.09 / 17.36 ms at 50 % (M4 Max, Chromium, DPR 1, size 2 px)
+2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px)
 
 ## Setup
 ```bash

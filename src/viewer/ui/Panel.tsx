@@ -1,4 +1,4 @@
-import { useStore, useViewerStore, type ColorMode, type Colormap } from '../state/store'
+import { useStore, useViewerStore, type ColorMode, type Colormap, type EdlState } from '../state/store'
 import styles from './Panel.module.css'
 
 export function Panel() {
@@ -16,7 +16,7 @@ export function Panel() {
   const total = manifest?.pointCount ?? 0
   const frac = total ? loaded.points / total : 0
   const budgetPct = Math.round(budget * 100)
-  const setEdl = (patch: Partial<typeof edl>) => store.set({ edl: { ...store.get().edl, ...patch } })
+  const setEdl = (patch: Partial<EdlState>) => store.set({ edl: { ...store.get().edl, ...patch } })
   return (
     <div className={styles.panel}>
       <div className={styles.name}>{manifest?.name ?? 'loading…'}</div>

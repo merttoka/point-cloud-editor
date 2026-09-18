@@ -4,11 +4,10 @@ import { edlShadeNode } from './edl'
 import type { EdlState } from '../state/store'
 
 export interface PostHandle {
-  pipeline: THREE.RenderPipeline
   setEnabled(on: boolean): void
   setRadius(px: number): void
   setStrength(s: number): void
-  render(camera: THREE.PerspectiveCamera, dpr: number): void
+  render(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, dpr: number): void
   dispose(): void
 }
 
@@ -21,20 +20,18 @@ export function createPostPipeline(renderer: THREE.WebGPURenderer, scene: THREE.
   const u = {
     radiusPx: uniform(init.radiusPx),
     strength: uniform(init.strength),
-    near: uniform(0.1),
-    far: uniform(1000),
+    near: uniform(0),                    // near/far/dpr are written from the live camera in render(), every frame
+    far: uniform(0),
     dpr: uniform(1),
   }
   const edl = edlShadeNode(colour, depth, u)
   const pipeline = new THREE.RenderPipeline(renderer, init.enabled ? edl : scenePass)
-  let enabled = init.enabled
 
   return {
-    pipeline,
     setEnabled(on) {
-      if (on === enabled) return
-      enabled = on
-      pipeline.outputNode = on ? edl : scenePass
+      const output = on ? edl : scenePass
+      if (pipeline.outputNode === output) return
+      pipeline.outputNode = output
       pipeline.needsUpdate = true          // outputNode assignment alone does not rebuild the quad material
     },
     setRadius(px) { u.radiusPx.value = px },
