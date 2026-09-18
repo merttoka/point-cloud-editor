@@ -1,7 +1,6 @@
 import type { Bounds } from '../format/quant'
 import { WORDS_PER_POINT } from '../format/quant'
 
-export const K = 16                       // neighbours kept per point (drop to 12 if the normals kernel spills)
 export const EPS_MUL = 0.02               // AO tangent-plane threshold = EPS_MUL × radius
 export const BENCH_CAP = 2_000_000        // CPU benchmark / Verify point cap
 export const SCAN_BLOCK = 256             // cells per scan block (serial per thread); templated into the scan kernels

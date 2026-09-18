@@ -19,7 +19,7 @@ export interface PointMaterialHandle {
 }
 
 const MODE: Record<ColorMode, number> = { height: 0, intensity: 1, class: 2 }
-const SHADING: Record<Shading, number> = { flat: 0, lit: 1, litAo: 2 }
+const SHADING: Record<Shading, number> = { flat: 0, lit: 1, litAo: 2, normals: 3 }
 
 // `init` seeds the uniforms/LUT from the store snapshot so the material never carries its own copy of the defaults.
 export function createPointMaterial(
@@ -63,13 +63,18 @@ export function createPointMaterial(
   const normalObj = normalize(vec3(ox, oy, nz))
   const nView = normalize(transformNormalToView(normalObj))
   const viewDir = normalize(positionView.negate())
-  const lambert = max(abs(dot(nView, viewDir)), 0.15)          // headlight; abs = camera-facing flip
+  const SUN = normalize(vec3(-0.4, -0.3, 0.85))                  // world, +Z up; fixed key light from above-left
+  const wrap = float(0.30).add(abs(dot(nView, viewDir)).mul(0.45))
+  const sun = max(dot(normalObj, SUN), 0).mul(0.25)
+  const lambert = wrap.add(sun)                                   // 0.30 … 1.0
   const aoByte = float(byteOf(buffers.aoNode)).div(255)
   // Branchless blend: select() compiles to if/else and the builder then emits the first (shared) evaluation of
   // positionView/modelViewMatrix inside one branch, leaving them unassigned on the others (clip space reads them).
-  const lit = step(0.5, shading)                                 // 1 for lit / litAo
-  const useAo = step(1.5, shading)                               // 1 for litAo
-  const light = mix(float(1), lambert.mul(mix(float(1), aoByte, useAo)), lit)
+  const lit = step(0.5, shading)                                 // 1 for lit / litAo / normals
+  const useAo = step(1.5, shading)                               // 1 for litAo (and normals, harmless: masked below)
+  const debugNormals = step(2.5, shading)                        // 1 for normals
+  const aoTerm = mix(float(1), aoByte.sqrt(), useAo)              // sqrt: occlusion shades, never masks
+  const light = mix(float(1), lambert.mul(aoTerm), lit)
 
   const material = new THREE.PointsNodeMaterial()
   material.sizeAttenuation = false
@@ -90,7 +95,7 @@ export function createPointMaterial(
     return tex
   }
   const lutNode = texture(lutFor(init.colorMode === 'class' ? 'class' : init.colormap), vec2(vertexStage(t), 0.5))
-  material.colorNode = lutNode.mul(vertexStage(light))
+  material.colorNode = mix(lutNode.mul(vertexStage(light)), vertexStage(abs(normalObj)), debugNormals)
 
   return {
     material,

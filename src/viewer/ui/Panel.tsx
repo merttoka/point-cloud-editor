@@ -76,7 +76,7 @@ export function Panel({ api }: { api: ViewerApi }) {
         <div className={styles.groupTitle}>Compute</div>
         <div className={styles.muted}>All {total.toLocaleString()} points, independent of budget.</div>
         <label className={styles.row}><span>Radius</span><span>{compute.radiusMul.toFixed(1)}× = {radius.toFixed(2)} m</span>
-          <input type="range" min={1} max={6} step={0.5} value={compute.radiusMul} disabled={compute.status === 'running'}
+          <input type="range" min={2} max={10} step={0.5} value={compute.radiusMul} disabled={compute.status === 'running'}
             onChange={(e) => store.set({ compute: { ...store.get().compute, radiusMul: Number(e.target.value) } })} /></label>
         <button className={styles.button} disabled={!canBuild} onClick={() => api.build?.(radius)}>
           {compute.status === 'running' ? 'Building…' : compute.status === 'built' && compute.builtRadius === radius ? 'Built' : 'Build normals + AO'}
@@ -96,6 +96,7 @@ export function Panel({ api }: { api: ViewerApi }) {
             <option value="flat">Flat</option>
             <option value="lit" disabled={compute.status !== 'built'}>Normal-lit</option>
             <option value="litAo" disabled={compute.status !== 'built'}>Lit + AO</option>
+            <option value="normals" disabled={compute.status !== 'built'}>Normals (debug)</option>
           </select></label>
       </div>
       <div className={styles.group}>

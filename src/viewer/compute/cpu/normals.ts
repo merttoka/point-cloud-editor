@@ -1,5 +1,4 @@
-import { K } from '../params'
-import { knn, type Grid } from './hash'
+import { forEachNeighbour, type Grid } from './hash'
 
 // CPU mirror of wgsl/normals.ts. Matrices are number[9] row-major; symmetric input.
 
@@ -65,21 +64,22 @@ export function octDecode(w: number): [number, number, number] {
 }
 
 export function normalAt(g: Grid, pos: Float32Array, i: number): [number, number, number] {
-  const nn = knn(g, pos, i, K)
-  if (nn.n < 3) return [0, 0, 1]
-  // mean over the point and its neighbours
-  let mx = pos[i * 3], my = pos[i * 3 + 1], mz = pos[i * 3 + 2]
-  for (let m = 0; m < nn.n; m++) { const j = nn.idx[m]; mx += pos[j * 3]; my += pos[j * 3 + 1]; mz += pos[j * 3 + 2] }
-  const cnt = nn.n + 1
-  mx /= cnt; my /= cnt; mz /= cnt
-  let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0
-  const acc = (j: number) => {
-    const dx = pos[j * 3] - mx, dy = pos[j * 3 + 1] - my, dz = pos[j * 3 + 2] - mz
+  // Single-pass covariance of d = p_j − p_i over every neighbour within radius (+ the point itself, d = 0):
+  // centring on p_i keeps the sums small so the f32 kernel and this mirror agree.
+  const px = pos[i * 3], py = pos[i * 3 + 1], pz = pos[i * 3 + 2]
+  let n = 1, sx = 0, sy = 0, sz = 0, xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0
+  forEachNeighbour(g, pos, i, g.radius * g.radius, (j) => {
+    const dx = pos[j * 3] - px, dy = pos[j * 3 + 1] - py, dz = pos[j * 3 + 2] - pz
+    n++; sx += dx; sy += dy; sz += dz
     xx += dx * dx; xy += dx * dy; xz += dx * dz; yy += dy * dy; yz += dy * dz; zz += dz * dz
-  }
-  acc(i)
-  for (let m = 0; m < nn.n; m++) acc(nn.idx[m])
-  const v = smallestEigenvector([xx / cnt, xy / cnt, xz / cnt, xy / cnt, yy / cnt, yz / cnt, xz / cnt, yz / cnt, zz / cnt])
+  })
+  if (n < 4) return [0, 0, 1]
+  const mx = sx / n, my = sy / n, mz = sz / n
+  const v = smallestEigenvector([
+    xx / n - mx * mx, xy / n - mx * my, xz / n - mx * mz,
+    xy / n - mx * my, yy / n - my * my, yz / n - my * mz,
+    xz / n - mx * mz, yz / n - my * mz, zz / n - mz * mz,
+  ])
   if (!v) return [0, 0, 1]
   return v[2] < 0 ? [-v[0], -v[1], -v[2]] : v
 }

@@ -37,6 +37,7 @@ Kernels are `wgslFn` strings with `ptr<storage, array<T>, read_write>` params; e
 ### Parameters
 - `radius` (metres). Default `3 × spacing`, `spacing = sqrt((maxX − minX) × (maxY − minY) / N)`. Slider `1–6 × spacing`; changing it invalidates results (button re-enabled).
 - `k = 16` neighbours, `eps = 0.02 × radius` for the AO tangent-plane test. Both constants, not UI.
+- Amended by A11 (2026-09-18): default radius **6 × spacing**, slider **2–10×**; `k` removed — the normals kernel accumulates every neighbour within `radius` instead of capping at `k` (`eps` for AO is unchanged).
 
 ### Buffers (T = `nextPow2(max(1024, N / 8))`)
 | buffer | type | 20M (T = 2^22) |
@@ -56,6 +57,7 @@ Kernels are `wgslFn` strings with `ptr<storage, array<T>, read_write>` params; e
 2. **scan** — exclusive prefix sum over `cellStart[0..T]`, three kernels (reduce-then-scan): block reduce (workgroup 256, one `u32` sum per block into `blockSums`), scan of `blockSums` (single workgroup, T/256 ≤ 16384 entries → looped), then per-block local exclusive scan seeded with the scanned block sum, written in place. The third kernel also writes `cellCursor[c] = cellStart[c]` (three has no public buffer-copy API). Result: `cellStart[c]` = first index of cell `c` in `sorted`, `cellStart[T]` = N.
 3. **scatter** — thread per point: `sorted[atomicAdd(cellCursor[key], 1)] = i`.
 4. **normals** — thread per point: visit the 27 cells around `p`, iterate `sorted[cellStart[c] .. cellStart[c+1])`, keep the `k` nearest within `radius` by register insertion sort (arrays of 16 `f32` + 16 `u32`), covariance of the kept neighbours, smallest eigenvector via Jacobi 3×3 (fixed 8 sweeps), orient toward +Z, oct-encode to `2 × u16` → `normals[i]`. Degenerate (< 3 neighbours, or smallest two eigenvalues equal within 1e-6) → `+Z`. The camera-facing flip (`dot(n, viewDir) < 0`) is done in the vertex shader, not stored.
+   Amended by A11 (2026-09-18): drops the `k`-nearest cap and register insertion sort — accumulates a single-pass centred covariance (`Σd`, `Σddᵀ`, count) over **every** neighbour within `radius`; the degenerate threshold becomes `n < 4` (point + 3 real neighbours minimum).
 5. **ao** — thread per **word** (4 points): for each of the 4 points, decode `n`, count neighbours within `radius` with `dot(p_j − p, n) > eps`, `ao = 1 − count / total` (0 neighbours → 1), pack u8 → whole-word store `ao[w]`.
 
 Dispatch shape: workgroup size 64 for point-parallel kernels, `Fn(...)().compute(N, [64])`. At 20M that is 312,500 workgroups, above the 65,535 per-dimension limit; three 0.186 handles this itself (A9): `WebGPUBackend.compute` clamps X to 65,535 and adds a Y dimension for a numeric count, and the compute prologue defines `instanceIndex = globalId.x + globalId.y × (wgX × numWorkgroups.x) + …`, so kernels keep using `instanceIndex` with an `i ≥ N` guard (three also emits an early return from `count` when `allowEarlyReturns` is on). No hand-rolled 2D indexing. Scan kernels use workgroup 256. Buffers written by atomics (`cellStart`) are zeroed before each build by writing zeros into the attribute array and flagging `needsUpdate`.
@@ -66,6 +68,7 @@ Dispatch shape: workgroup size 64 for point-parallel kernels, `Fn(...)().compute
 ### UI
 - "Build normals + AO" button, enabled once load is 100% (compute needs every point present; partial builds would seam). Disabled while running; shows elapsed.
 - Shading select: `flat` (colormap only), `normal-lit` (Lambert with a headlight: `max(dot(n', viewDir), 0.15)` × colormap, `n'` = camera-facing-flipped normal), `lit + AO` (× `ao`). Modes other than `flat` are disabled until a build has completed.
+  Amended by A11 (2026-09-18): headlight replaced by `light = 0.30 + 0.45·|n·v| + 0.25·max(n·L, 0)` (`v` = view direction, `L` a fixed world-space sun); `lit + AO` applies `sqrt(ao)`, not `× ao`. A fourth mode, `normals` (debug), colours `|n_world|` directly and is disabled until a build has completed like the other two.
 - CPU benchmark section (debug panel): N cap 2M (demo set, or first-N prefix of each chunk on the full set), Run / Cancel, progress %, table `pass × { GPU ms, CPU ms, N }`.
 - Verify button: runs GPU and CPU at the same N, reads back `normals` and `ao` with `renderer.getArrayBufferAsync`, reports median + max angular difference (degrees) and AO mean absolute error.
 

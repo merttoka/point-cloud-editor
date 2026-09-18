@@ -6,7 +6,7 @@ export type Colormap = 'viridis' | 'turbo' | 'grayscale'
 
 export interface EdlState { enabled: boolean; radiusPx: number; strength: number }
 
-export type Shading = 'flat' | 'lit' | 'litAo'
+export type Shading = 'flat' | 'lit' | 'litAo' | 'normals'
 export interface PassTiming { pass: string; submitMs: number; gpuMs: number | null }
 export interface ComputeState {
   status: 'idle' | 'running' | 'built' | 'error'
@@ -52,7 +52,7 @@ export const initialState: ViewerState = {
   showHud: true,
   edl: { enabled: true, radiusPx: 1.5, strength: 1 },
   shading: 'flat',
-  compute: { status: 'idle', radiusMul: 3, builtRadius: null, timings: [], elapsedMs: null },
+  compute: { status: 'idle', radiusMul: 6, builtRadius: null, timings: [], elapsedMs: null },
   bench: { status: 'idle', progress: 0, n: 0, cpuMs: null, verify: null },
 }
 

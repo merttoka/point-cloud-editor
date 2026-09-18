@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { spacingOf, tableSizeFor, benchWords, BENCH_CAP, K } from './params'
+import { spacingOf, tableSizeFor, benchWords, BENCH_CAP } from './params'
 
 describe('params', () => {
   it('spacing is sqrt(areaXY / N)', () => {
@@ -25,5 +25,5 @@ describe('params', () => {
     const sub = benchWords(words, chunks, 6)
     expect(Array.from(sub)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
-  it('constants', () => { expect(K).toBe(16); expect(BENCH_CAP).toBe(2_000_000) })
+  it('constants', () => { expect(BENCH_CAP).toBe(2_000_000) })
 })

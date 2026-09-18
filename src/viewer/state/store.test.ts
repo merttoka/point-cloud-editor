@@ -41,7 +41,7 @@ describe('createStore', () => {
   it('phase 4 defaults: flat shading, compute idle at 3× spacing, bench idle', () => {
     const s = createStore(initialState)
     expect(s.get().shading).toBe('flat')
-    expect(s.get().compute).toEqual({ status: 'idle', radiusMul: 3, builtRadius: null, timings: [], elapsedMs: null })
+    expect(s.get().compute).toEqual({ status: 'idle', radiusMul: 6, builtRadius: null, timings: [], elapsedMs: null })
     expect(s.get().bench).toEqual({ status: 'idle', progress: 0, n: 0, cpuMs: null, verify: null })
   })
 })
