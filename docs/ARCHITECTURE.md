@@ -15,7 +15,7 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - `<Scene>` has no `key={manifestUrl}`; the cached renderer + `DatasetLimitCheck` handle a manifest swap, but sprites/material are rebuilt through `loaded` identity only. Owner: Phase 5 (export re-open).
 
 **Loader**
-- After ≥1 chunk uploaded, a worker `error` leaves `status` at `'loading'` forever (only `error` text is set; nothing gates on `status === 'loading'` today). Owner: any UI that adds a loading overlay.
+- After ≥1 chunk uploaded, a worker `error` leaves `status` at `'loading'` forever (only `error` text is set; the loading card gates on `!error` as well, so it hides). Owner: any UI that needs a real terminal state.
 - `url` is not re-synced to a fresh `response.url` after an origin retry; the discovery fetch is not retried; a mid-flight abort is untested; sibling workers are not cancelled on a chunk error. All cost/coverage only.
 - `loader.worker.ts` `if (msg.pos)` seeding and the worker entry have no unit test (module workers aren't testable under the node vitest env); browser-verified via the first-five-chunk log.
 - `validateManifest` accepts `count ≤ 0`, non-integers and `pointCount === 0` (→ `storage(..., 0)`).
@@ -32,7 +32,6 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 
 **Compute (Phase 4)**
 - Hash buffers (`cellStart` 16.8 MB, `cellCursor` 16.8 MB, `blockSums`, `sorted` 80 MB at 20M) stay allocated after a build (three has no API to free a `StorageBufferAttribute`'s GPU buffer; `Node.dispose()` only emits an event). Rebuilds reuse them; with `normals` 80 MB + `ao` 20 MB they are the ~214 MB the renderer-leak entry above counts. Owner: same as the renderer leak.
-- CPU worker benchmark (`normals`/`ao` rows) not re-measured since radius PCA + the 6× default (A11): the CPU columns in § Compute › Measured are kNN-era and no longer describe the shipped kernel. Owner: any bench-focused task.
 - Verify is disabled above `BENCH_CAP` (2M): the CPU bench runs a per-chunk prefix subsample there, whose neighbourhoods differ from the full set, so the readbacks are not comparable. A same-subset GPU build (or a full 20M CPU run, ~2.5 min extrapolated) would enable it. Owner: any.
 - `scanBlockSums` is a single-thread serial loop over `T/256` block sums (16,384 at 20M; 1.70 ms for the whole scan row) — the serial floor if `T` grows past 2²². Owner: any larger tile.
 - Build wall time exceeds the GPU sum by ~35–50 ms at 2M and ~950 ms at 20M (each `timedCompute` awaits `computeAsync` then `resolveTimestampsAsync`, interleaved with 35 ms render frames); the panel shows both, only `gpu` is the kernel cost. A single command encoder for all passes would close the gap. Owner: Phase 6 perf tooling.
@@ -88,7 +87,7 @@ Hand-rolled `createStore`/`useSyncExternalStore` store (no zustand, spec A7) —
 
 ### Keys
 
-Keyboard shortcuts (`F` refit, `H` toggle HUD) are bound via `onKeyDown` on the viewer's root `<div tabIndex={0}>` only — nothing attached to `window`/`document` — so they're focus-scoped and never hijack the host page.
+Keyboard shortcuts (`F` refit, `H` toggle HUD, `\` held = key list) are bound via `onKeyDown`/`onKeyUp` on the viewer's root `<div tabIndex={0}>` only — nothing attached to `window`/`document` — so they're focus-scoped and never hijack the host page. The key list (`ui/Overlays.tsx`, `KEYS` table) is local React state, cleared on `keyup` and root `blur`; the same file's `LoadingOverlay` is a centred card (name, bar, `% · pts · chunks`) mounted while `status !== 'ready'` and no error is set.
 
 ### GPU lifetime
 
@@ -264,7 +263,7 @@ Same algorithms in TS over typed arrays (`decodePositions` + `buildGrid`, `compu
 
 ### Measured
 
-**Pre-4b (`K = 16` kNN, radius 3 × spacing = 2.12 m demo / 0.67 m full)** — kept for the hash rows and the CPU columns. GPU = timestamp query per pass; console 0 errors in every run (2 benign warnings on the demo, 3 on the full set — `PCFSoftShadowMap` fires once per StrictMode mount).
+**Pre-4b (`K = 16` kNN, radius 3 × spacing = 2.12 m demo / 0.67 m full)** — kept for the per-pass hash rows. GPU = timestamp query per pass; console 0 errors in every run (2 benign warnings on the demo, 3 on the full set — `PCFSoftShadowMap` fires once per StrictMode mount).
 
 | pass | 2M gpu ms (Task 5 / Task 6 / this task) | 20M gpu ms (cold / warm) | CPU ms @2M (3 runs) | CPU ms, 20M subsample (1,999,872 pts) |
 |---|---|---|---|---|
@@ -279,17 +278,18 @@ Same algorithms in TS over typed arrays (`decodePositions` + `buildGrid`, `compu
 
 **Shipped (radius PCA, 6 × spacing = 4.24 m demo / 1.34 m full):**
 
-| pass | 2M gpu ms | 20M gpu ms |
-|---|---|---|
-| normals (radius PCA) | 34–36 (36.37 single run) | 630 |
-| ao | 46 (46.33 single run) | 685 |
-| total gpu | 80–83 | 1,321 |
-| wall | 121–130 ms | 2,536 ms |
+| pass | 2M gpu ms | 20M gpu ms | CPU ms @2M (3 runs) | CPU ms, 20M subsample (1,999,872 pts, 2 runs) |
+|---|---|---|---|---|
+| hash | (0.52) | (9.05) | 17 / 18 / 19 | 18 / 14 |
+| normals (radius PCA) | 34–36 (36.37 single run) | 630 | 6,587 / 7,834 / 7,630 | 4,582 / 4,663 |
+| ao | 46 (46.33 single run) | 685 | 6,363 / 6,329 / 6,099 | 4,220 / 4,029 |
+| total gpu | 80–83 | 1,321 | | |
+| wall | 121–130 ms | 2,536 ms | 13.0 / 14.2 / 13.8 s | 8.8 / 8.7 s |
 
 - 2M target < 200 ms GPU: met — 87–93 ms (kNN, 3×) → 59 ms (radius PCA, 3×) → 80–83 ms (radius PCA, 6×): dropping the 16-slot register sort saves more than doubling the radius costs. First build after a reload includes pipeline compile (pre-4b: normals 56.75, ao 36.70, wall 208 ms; hash-only 181.8 ms cold → 20.1 ms warm).
 - 20M at the same 3×: `normals` 818 → 743 ms, `ao` 704 → 667 ms without the register sort (likely spilled on Metal); at 6× `normals` 630 ms (still under the capped kernel), `ao` 685 ms (more candidates per point), total 1,321 ms, wall 2,536 ms. `T = 4,194,304`; `builtRadius` 0.6708 m (3×) / 1.3416 m (6×).
 - Class-6 `|n.z|` wall bin (the normal-quality evidence, § Normal quality): 0.021 (20M, 3×) → 0.078 (20M, 6×); class-2 top bin ≈ 0.99 at the 6× default.
-- CPU worker benchmark (`normals`/`ao`) not re-measured under radius PCA; the CPU columns above are kNN-era (Deferred).
+- CPU at 6× vs kNN at 3×: 2M normals 5.8 → 6.6–7.8 s, ao 4.7 → 6.1–6.4 s (≈4× the neighbours per point, no cap). The 20M subsample is *faster* than the demo (4.6 / 4.1 s): a 1-in-10 chunk prefix has a tenth of the full density at the same 1.34 m radius, so far fewer neighbours per point — the same reason Verify can't run on it.
 - Screenshots (`.playwright-mcp/`): pre-4b `shading-flat.png`, `shading-lit.png`, `shading-litao.png`, `shading-litao-close.png` (2M, EDL off close-up: facets from compute shading alone, no 16×16 chunk-grid seams), `shading-litao-20m.png` (20M, Lit + AO, EDL on, HUD `36.07 ms 28 fps draws 257 tris 40000001`, panel table visible); 4b `4b-normals-before.png` / `4b-litao-before.png` (`K = 16` baseline), `4b-normals-pca.png` / `4b-litao-pca.png` (radius PCA, 3×), `4b-litao-x6.png` / `4b-lit-x6.png` / `4b-litao-x6-close.png` (radius PCA, 6× default, wrap + sun shading).
 - Panel: Compute group (radius slider `2–10×` step 0.5 with the metre readout, default 6×, Build button → "Building…"/"Built", timing table submit/gpu per pass + total + wall, Shading select flat / lit / lit + AO / normals (debug), the last three disabled until built; Build re-enables when the radius moves — ruling 5); Benchmark group (Run CPU / Cancel with progress %, GPU-vs-CPU ms table labelled `(all)`/`(cap)` when the bench ran on a subsample, Verify button gated on built + `N ≤ 2M`, summary line).
 
