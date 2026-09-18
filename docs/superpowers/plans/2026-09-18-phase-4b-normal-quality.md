@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `lit` / `lit + AO` shading read as solid geometry: facade normals stop speckling (PCA over the full radius neighbourhood, then a sign-aligned smoothing pass), and the lighting model stops blackening side walls (wrap + fixed sun, AO as a shade not a mask).
+**Goal:** Make `lit` / `lit + AO` shading read as solid geometry: facade normals stop speckling (PCA over the full radius neighbourhood at 6 × spacing), and the lighting model stops blackening side walls (wrap + fixed sun, AO as a shade not a mask).
 
-**Architecture:** The normals kernel drops the K = 16 register kNN and accumulates a single-pass covariance of `d = p_j − p_i` over every neighbour within `radius` (centred on the point, so f32 stays exact for |d| ≤ r); a new `smoothKernel` averages neighbour normals with sign alignment into a scratch `u32[N]` buffer, and a `copyKernel` writes them back; AO runs on the smoothed normals. The CPU mirror follows the same two steps so Verify stays meaningful. The material's `light` term becomes `ambient + wrap·|n·v| + sun·max(n·L, 0)` with `ao` applied as `sqrt(ao)`; a `normals` debug shading mode paints `|n|` so the fix is visible and measurable (class-wise `|n.z|` histogram via the DEV hook).
+**Architecture:** The normals kernel drops the K = 16 register kNN and accumulates a single-pass covariance of `d = p_j − p_i` over every neighbour within `radius` (centred on the point, so f32 stays exact for |d| ≤ r); the default radius rises to 6 × spacing (a smoothing pass was planned and ruled out after measuring — see Task 2). The CPU mirror follows the same estimator so Verify stays meaningful. The material's `light` term becomes `ambient + wrap·|n·v| + sun·max(n·L, 0)` with `ao` applied as `sqrt(ao)`; a `normals` debug shading mode paints `|n|` so the fix is visible and measurable (class-wise `|n.z|` histogram via the DEV hook).
 
 **Tech Stack:** as Phase 4 (three 0.186 `wgslFn` + `storage()`, R3F 9.7, vitest, Playwright MCP).
 
@@ -15,13 +15,13 @@
 | Was | Now |
 |---|---|
 | normals: k = 16 nearest within radius, register insertion sort | normals: **all** neighbours within radius, single-pass centred covariance (Σd, Σddᵀ, count); `K` removed |
-| — | **smooth** pass: `n'_i = normalize(Σ_j sign(n_j·n_i) n_j)` over neighbours within radius (`n_i` included), written to `normalsTmp u32[N]`; **copy** pass writes it back to `normals`; both timed as one `smooth` row |
-| ao: reads `normals` | unchanged (now the smoothed normals) |
+| radius default 3 × spacing, slider 1–6 | default **6 × spacing**, slider 2–10 (no smoothing pass — ruled out after Task 1 measurements, see Task 2) |
+| ao: reads `normals` | unchanged |
 | shading: `max(|n·v|, 0.15)` headlight; `lit + AO` = × ao | `light = 0.30 + 0.45·|n·v| + 0.25·max(n_world·L, 0)`, `L = normalize(−0.4, −0.3, 0.85)` (world +Z up); `lit + AO` = × `sqrt(ao)`; new debug mode `normals` (colour = `|n_world|`) |
-| buffers +214 MB at 20M | +80 MB (`normalsTmp`) → ~474 MB computed at 20M |
-| Verify: normals median < 1° | unchanged (CPU mirror of both passes); AO MAE reported |
+| buffers | unchanged |
+| Verify: normals median < 1° | unchanged; AO MAE reported |
 
-Acceptance for this plan: class-6 `|n.z|` histogram (2M) — mass in bins (0.1, 0.9) drops from ~0.26 to < 0.10 and a wall peak appears in bin [0, 0.1); `lit + AO` screenshot at the home pose shows solid, directionally shaded boxes with no per-point speckle; 2M build total < 300 ms GPU; 20M builds clean; Verify median < 1°.
+Acceptance for this plan: class-6 `|n.z|` wall bin [0, 0.1) at the default radius ≥ 0.10 (2M) / ≥ 0.07 (20M) and coherent per-face colours in the `normals` debug view; `lit + AO` screenshot at the home pose shows solid, directionally shaded boxes with no per-point speckle; 2M build total < 300 ms GPU; 20M builds clean; Verify median < 1°.
 
 ## Global Constraints
 
@@ -135,24 +135,13 @@ export function normalAt(g: Grid, pos: Float32Array, i: number): [number, number
 
 ---
 
-### Task 2: Smoothing pass (GPU + CPU), timing row, memory
+### Task 2: Default radius 6 × spacing (smoothing pass dropped — ruling after Task 1 measurements)
 
-**Files:**
-- Modify: `src/viewer/compute/wgsl/normals.ts` (add `smoothKernel`, `copyKernel`), `src/viewer/compute/pipeline.ts`, `src/viewer/compute/cpu/normals.ts` (`smoothNormals`), `src/viewer/compute/cpu/run.ts`
-- Test: `src/viewer/compute/cpu/normals.test.ts`, `src/viewer/compute/cpu/run.test.ts`
+Measured after Task 1 (radius PCA): class-6 wall bin [0, 0.1) — 20M: 0.021 at 3× (0.67 m) → 0.078 at 6× (1.34 m); 2M: 0.043 at 3× (2.12 m) → 0.109 at 6× (4.24 m). Normals-debug screenshots at 6× show coherent per-face colours at both densities (`.playwright-mcp/4b-normals-20m-x6.png`, `4b-normals-2m-x6.png`). The radius ∝ spacing law holds; the multiplier was too small once the K cap stopped hiding it. Cost at 6×: normals 34 ms @2M, 630 ms @20M; AO 46 / 685 ms. A smoothing pass (+80 MB, +1 pass) is not needed — **A11 amended: no smooth pass; default `radiusMul = 6`, slider 2–10.**
 
-**Interfaces:**
-- `smoothKernel(qpos, cellStart, sorted, normals, normalsTmp, i, count, dqScale, radius, mask) -> u32`: `acc = n_i; for j in radius: acc += sign(dot(n_j, n_i)) * n_j` (`sign` → `select(-1, 1, dot >= 0)`), `normalsTmp[i] = octEncode(normalize(acc))` (orientation stays +Z-ish because `n_i` is +Z-oriented and dominates the sign choice; re-apply `if (acc.z < 0) acc = -acc`).
-- `copyKernel(src, dst, i, count)`: `dst[i] = src[i]`.
-- CPU: `smoothNormals(g, pos, normals: Uint32Array, end, out = new Uint32Array(end), start = 0): Uint32Array` same formula; `runCpu` gains the step (progress: hash 0.1, normals 0.45, smooth 0.25, ao 0.2; `ms.smooth`).
-- Pipeline: `normalsTmpAttr = StorageBufferAttribute(Uint32Array(N))`; passes `normals` → `smooth` (kSmooth + kCopy timed as one `smooth` row) → `ao`. `PassTiming` rows: count, scan, scatter, normals, smooth, ao. Store `BenchState.cpuMs` gains `smooth`; Panel bench table gains a `smooth` row.
+**Files:** `src/viewer/state/store.ts` (`initialState.compute.radiusMul: 6`), `src/viewer/state/store.test.ts` (default → 6), `src/viewer/ui/Panel.tsx` (slider `min={2} max={10}`), `src/viewer/compute/ComputeRunner.tsx` (`cpuCellStart` unchanged).
 
-- [ ] **Step 1: Failing tests** — `normals.test.ts`: on the facade fixture from Task 1 with per-point jitter, `smoothNormals` reduces the max angular deviation from the patch's mean normal (compute before/after; expect after < before and after < 5°). `run.test.ts`: `ms.smooth >= 0`, progress call count becomes `1 + 3 + 3 + 3` at n = 250k.
-- [ ] **Step 2: CPU + GPU implementation** per interfaces (mirror exactly: include `n_i` in the sum; neighbours within `radius`; sign alignment; +Z re-orient; oct encode).
-- [ ] **Step 3: Pipeline** — allocate `normalsTmp`, add `kSmooth` (`.compute(N,[64])`) and `kCopy` (`.compute(N,[64])`), sum their timings into one `smooth` row, dispose both nodes + the tmp storage node. `readback()` unchanged (reads `normals`, now smoothed).
-- [ ] **Step 4: Gates + browser** — demo: histogram (acceptance: class-6 mass in (0.1, 0.9) < 0.10, wall peak in [0, 0.1)); screenshots `4b-normals-smooth.png`, `4b-litao-smooth.png`; timings (expect `smooth` ≈ normals cost); Verify median < 1°. Commit `compute: sign-aligned normal smoothing pass`.
-
----
+- [ ] Change the default + test + slider range; `npx tsc --noEmit && npx vitest run` green; browser: demo Build at the default (4.24 m) → `classStats()` class 6 wall bin ≈ 0.11, `Lit + AO` screenshot `.playwright-mcp/4b-litao-x6.png`. Commit `compute: default radius 6× spacing`.
 
 ### Task 3: Lighting model
 
