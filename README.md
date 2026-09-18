@@ -3,11 +3,11 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 4b done: GPU normals via radius PCA (single-pass covariance, no K cap) + AO (spatial hash, tangent-plane AO), wrap + fixed-sun shading, CPU benchmark + verify.
+Phase 4b done: GPU normals (spatial hash, radius PCA) + tangent-plane AO, wrap + fixed-sun shading, normals debug view, CPU benchmark + verify.
 
-2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading (wrap + fixed-sun lambert, ao as `sqrt` shade not mask) adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
+2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading (wrap + fixed sun, `sqrt(ao)`) adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
 
-Compute build (radius 6 × spacing, the 4b default: 4.24 m on the demo, 1.34 m on the full set; GPU = timestamp query per pass):
+Compute build (radius 6 × spacing: 4.24 m demo, 1.34 m full; GPU = timestamp query per pass; the hash row is the 3× measurement — its cost depends on `T`/`N`, not radius):
 
 | pass | GPU ms @2M | GPU ms @20M |
 |---|---|---|
@@ -16,11 +16,9 @@ Compute build (radius 6 × spacing, the 4b default: 4.24 m on the demo, 1.34 m o
 | ao | 46 | 685 |
 | **total** | **80–83** | **1,321** |
 
-(hash carried from the pre-4b measurement: cost is set by `T`/`N`, not radius or the normals estimator, so it's unaffected by the 6× default.)
+Radius default 6 × spacing: at 20M density (~0.224 m spacing) a 16-neighbour cap kept the PCA support within ~0.5 m whatever the radius; radius PCA at 6× puts the class-6 facade `|n.z|` wall-bin mass at 0.109 @2M / 0.078 @20M (0.043 / 0.021 at 3×; `docs/ARCHITECTURE.md` § Normal quality).
 
-Default radius is 6 × spacing, up from 3×: at 20M density (~0.224 m spacing) the `K = 16` cap this replaced already sat within ~0.5 m of any point, so widening the slider multiplier alone never grew the PCA support — dropping the cap and doubling the default fixes it (class-6 facade `|n.z|` wall-bin mass 0.021 → 0.078 at 20M, 0.043 → 0.109 at 2M; see `docs/ARCHITECTURE.md` § Normal quality).
-
-Build wall time at the 6× default: 121–130 ms at 2M, 2.54 s at 20M (six `computeAsync` + timestamp resolves). Verify @2M (radius PCA): median 0.000°, max 81.23°, AO MAE 0.0001, non-finite 0. Verify stays 2M-only by design (needs the same point set on both sides); the CPU worker benchmark hasn't been re-timed under radius PCA at the 6× default (historical `K = 16`/3× figures are noted in ARCHITECTURE's Deferred list).
+Build wall time: 121–130 ms at 2M, 2.54 s at 20M (six `computeAsync` + timestamp resolves). Verify @2M: median 0.000°, max 81.23°, AO MAE 0.0001, non-finite 0; 2M-only by design (same point set on both sides). CPU worker benchmark not re-timed under radius PCA (Deferred).
 
 ## Setup
 ```bash

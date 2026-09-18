@@ -71,7 +71,7 @@ export function createPointMaterial(
   // Branchless blend: select() compiles to if/else and the builder then emits the first (shared) evaluation of
   // positionView/modelViewMatrix inside one branch, leaving them unassigned on the others (clip space reads them).
   const lit = step(0.5, shading)                                 // 1 for lit / litAo / normals
-  const useAo = step(1.5, shading)                               // 1 for litAo (and normals, harmless: masked below)
+  const useAo = step(1.5, shading)                               // 1 for litAo / normals (normals overrides colour below)
   const debugNormals = step(2.5, shading)                        // 1 for normals
   const aoTerm = mix(float(1), aoByte.sqrt(), useAo)              // sqrt: occlusion shades, never masks
   const light = mix(float(1), lambert.mul(aoTerm), lit)

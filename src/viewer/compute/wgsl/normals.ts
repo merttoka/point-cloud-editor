@@ -28,7 +28,7 @@ export const normalsKernel = wgslFn(/* wgsl */ `
             if (j == i) { continue; }
             let d = pcvDecodePos(qpos[j], dqScale) - p;
             if (dot(d, d) > r2) { continue; }
-            n = n + 1u; s = s + d;
+            n += 1u; s += d;
             xx += d.x * d.x; xy += d.x * d.y; xz += d.x * d.z; yy += d.y * d.y; yz += d.y * d.z; zz += d.z * d.z;
           }
         }
