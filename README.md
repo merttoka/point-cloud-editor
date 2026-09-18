@@ -7,18 +7,18 @@ Phase 4b done: GPU normals (spatial hash, radius PCA) + tangent-plane AO, wrap +
 
 2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading (wrap + fixed sun, `sqrt(ao)`) adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
 
-Compute build (radius 6 × spacing: 4.24 m demo, 1.34 m full; GPU = timestamp query per pass; the hash row is the 3× measurement — its cost depends on `T`/`N`, not radius):
+Compute build (radius 6 × spacing: 4.24 m demo, 1.34 m full; GPU = timestamp query per pass; CPU = same algorithms in the loader worker; the hash row is the 3× measurement — its cost depends on `T`/`N`, not radius):
 
-| pass | GPU ms @2M | GPU ms @20M |
-|---|---|---|
-| hash (count+scan+scatter) | 0.52 | 9.05 |
-| normals (radius PCA) | 34–36 | 630 |
-| ao | 46 | 685 |
-| **total** | **80–83** | **1,321** |
+| pass | GPU ms @2M | GPU ms @20M | CPU ms @2M (worker) |
+|---|---|---|---|
+| hash (count+scan+scatter) | 0.52 | 9.05 | 17–19 |
+| normals (radius PCA) | 34–36 | 630 | 6,587–7,834 |
+| ao | 46 | 685 | 6,099–6,363 |
+| **total** | **80–83** | **1,321** | **13.0–14.2 s** |
 
 Radius default 6 × spacing: at 20M density (~0.224 m spacing) a 16-neighbour cap kept the PCA support within ~0.5 m whatever the radius; radius PCA at 6× puts the class-6 facade `|n.z|` wall-bin mass at 0.109 @2M / 0.078 @20M (0.043 / 0.021 at 3×; `docs/ARCHITECTURE.md` § Normal quality).
 
-Build wall time: 121–130 ms at 2M, 2.54 s at 20M (six `computeAsync` + timestamp resolves). Verify @2M: median 0.000°, max 81.23°, AO MAE 0.0001, non-finite 0; 2M-only by design (same point set on both sides). CPU worker benchmark not re-timed under radius PCA (Deferred).
+Build wall time: 121–130 ms at 2M, 2.54 s at 20M (six `computeAsync` + timestamp resolves). Verify @2M: median 0.000°, max 81.23°, AO MAE 0.0001, non-finite 0; 2M-only by design (same point set on both sides). On the full set the CPU bench runs a 1,999,872-point per-chunk prefix subsample (hash 14–18 / normals 4,582–4,663 / ao 4,029–4,220 ms, ~8.8 s wall) — faster than the demo because the prefix is a tenth of the full density at the same 1.34 m radius, which is also why Verify can't use it.
 
 ## Setup
 ```bash
@@ -72,8 +72,9 @@ npm run dev         # Chrome with WebGPU → http://localhost:5173
 | drag / wheel | orbit / zoom (OrbitControls, +Z up) |
 | `F` | refit camera to dataset |
 | `H` | toggle HUD |
+| `\` (hold) | show the key list |
 | panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 2–10 × spacing, default 6×), shading (flat / lit / lit + AO / normals debug), CPU benchmark, verify |
-Keys work only while the viewer has focus (click it first).
+Keys work only while the viewer has focus (click it first). A centred progress card covers the load; it unmounts on ready.
 
 ## Phase 0 spike results
 Synthetic cloud, Apple M4 Max, Chromium 153 (headless Playwright), DPR 1, size 3 px, Sprite-quad path (4 verts/pt), `requiredLimits.maxStorageBufferBindingSize` = adapter limit. Full notes: `docs/ARCHITECTURE.md`.
