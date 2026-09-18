@@ -4,7 +4,7 @@ import { PointCloudViewer } from './viewer/PointCloudViewer'
 const params = new URLSearchParams(window.location.search)
 const dataset = params.get('data') === 'full' ? 'full' : 'demo'
 const dprParam = Number(params.get('dpr'))
-const dpr = Number.isFinite(dprParam) && dprParam > 0 ? dprParam : undefined
+const dpr = Number.isFinite(dprParam) && dprParam > 0 ? Math.min(4, Math.max(0.5, dprParam)) : undefined
 
 export function App() {
   return (

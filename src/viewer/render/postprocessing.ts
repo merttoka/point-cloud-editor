@@ -12,10 +12,10 @@ export interface PostHandle {
   dispose(): void
 }
 
-// One RenderPipeline per <Canvas>: scene → HalfFloat colour + Float depth pass → EDL → renderOutput (ACES + sRGB, once).
+// One RenderPipeline per <Canvas>: scene → HalfFloat colour + depth pass → EDL → renderOutput (ACES + sRGB, once).
 // `outputColorTransform` stays true so "off" (outputNode = scenePass) equals the plain canvas render within rounding.
 export function createPostPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, init: EdlState): PostHandle {
-  const scenePass = pass(scene, camera, { samples: 0 })      // HalfFloatType colour (PassNode default); depth → FloatType on WebGPU
+  const scenePass = pass(scene, camera, { samples: 0 })      // HalfFloatType colour (PassNode default); depth is the DepthTexture default (24-bit) unless renderer.reversedDepthBuffer is on
   const colour = scenePass.getTextureNode('output')
   const depth = scenePass.getTextureNode('depth')
   const u = {
