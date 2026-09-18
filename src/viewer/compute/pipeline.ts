@@ -54,7 +54,7 @@ export function createComputePipeline(renderer: THREE.WebGPURenderer, buffers: P
 
   async function hashPasses(): Promise<PassTiming[]> {
     const out: PassTiming[] = []
-    await renderer.computeAsync(kZero)                          // not timed: bookkeeping
+    await renderer.computeAsync(kZero)                          // untimed on its own: its GPU cost folds into the next resolve (the count row)
     out.push(await timedCompute(renderer, kCount, 'count'))
     const r = await timedCompute(renderer, kReduce, 'scan')
     const s = await timedCompute(renderer, kScanSums, 'scan')

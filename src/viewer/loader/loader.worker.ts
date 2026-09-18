@@ -22,7 +22,7 @@ ctx.onmessage = (e) => {
     }).then((res) => {
       if (!res) { ctx.postMessage({ type: 'benchCancelled' }); return }
       ctx.postMessage({ type: 'benchDone', normals: res.normals, ao: res.ao, ms: res.ms }, [res.normals.buffer, res.ao.buffer])
-    })
+    }).catch(() => ctx.postMessage({ type: 'benchCancelled' }))   // worker exceptions surface as a cancelled bench
     return
   }
   queue = new ChunkQueue(msg.chunks)

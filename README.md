@@ -14,7 +14,7 @@ Compute build (radius 3 × spacing: 2.12 m on the demo, 0.67 m on the full set; 
 | hash (count+scan+scatter) | 0.52 | 9.05 | 17 |
 | normals (k=16) | 55.64 | 818.15 | 5,751 |
 | ao | 31.78 | 704.25 | 4,662 |
-| **total** | **87.94** | **1,531.45** | **10,430** |
+| **total** | **87–93 (3 runs)** | **1,531.45** | **10,430** |
 
 Build wall time (six `computeAsync` + timestamp resolves): 129 ms at 2M, 2.49 s at 20M. Verify @2M: median 0.000°, max 80.77° (213 of 2M points > 1°, near-isotropic neighbourhoods), AO MAE 0.0001, non-finite 0. On the full set the CPU bench runs a 1,999,872-point per-chunk prefix subsample (hash 17 / normals 7,167 / ao 6,906 ms) and Verify is disabled.
 

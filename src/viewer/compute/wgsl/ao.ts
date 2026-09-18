@@ -7,6 +7,7 @@ export const aoKernel = wgslFn(/* wgsl */ `
   fn aoKernel(qpos: ptr<storage, array<vec2<u32>>, read_write>, cellStart: ptr<storage, array<atomic<u32>>, read_write>,
               sorted: ptr<storage, array<u32>, read_write>, normals: ptr<storage, array<u32>, read_write>,
               ao: ptr<storage, array<u32>, read_write>, w: u32, count: u32, dqScale: vec3<f32>, radius: f32, mask: u32, eps: f32) -> u32 {
+    if (w * 4u >= count) { return 0u; }
     var out = 0u;
     let r2 = radius * radius;
     for (var k = 0u; k < 4u; k++) {
