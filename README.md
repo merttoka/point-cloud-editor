@@ -3,9 +3,20 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 3 done: eye-dome lighting post pass (toggle, radius, strength).
+Phase 4 done: GPU normals + AO (spatial hash, PCA, tangent-plane AO), shading modes, CPU benchmark + verify.
 
-2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px)
+2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
+
+Compute build (radius 3 × spacing: 2.12 m on the demo, 0.67 m on the full set; GPU = timestamp query, CPU = same algorithms in the loader worker):
+
+| pass | GPU ms @2M | GPU ms @20M | CPU ms @2M (worker) |
+|---|---|---|---|
+| hash (count+scan+scatter) | 0.52 | 9.05 | 17 |
+| normals (k=16) | 55.64 | 818.15 | 5,751 |
+| ao | 31.78 | 704.25 | 4,662 |
+| **total** | **87.94** | **1,531.45** | **10,430** |
+
+Build wall time (six `computeAsync` + timestamp resolves): 129 ms at 2M, 2.49 s at 20M. Verify @2M: median 0.000°, max 80.77° (213 of 2M points > 1°, near-isotropic neighbourhoods), AO MAE 0.0001, non-finite 0. On the full set the CPU bench runs a 1,999,872-point per-chunk prefix subsample (hash 17 / normals 7,167 / ao 6,906 ms) and Verify is disabled.
 
 ## Setup
 ```bash
@@ -59,7 +70,7 @@ npm run dev         # Chrome with WebGPU → http://localhost:5173
 | drag / wheel | orbit / zoom (OrbitControls, +Z up) |
 | `F` | refit camera to dataset |
 | `H` | toggle HUD |
-| panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4) |
+| panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 1–6 × spacing), shading (flat / lit / lit + AO), CPU benchmark, verify |
 Keys work only while the viewer has focus (click it first).
 
 ## Phase 0 spike results

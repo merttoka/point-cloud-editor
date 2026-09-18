@@ -30,6 +30,16 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - 20M EDL cost at 100 % budget sits below the HUD EMA's ±1 ms toggle-to-toggle noise (Phase 3 measured section below); a GPU timestamp query around the pipeline's `render()` would give a real per-pass number. Owner: whichever phase next touches perf tooling (Phase 4 already wires `trackTimestamp`/`resolveTimestampsAsync` for compute).
 - `PCFSoftShadowMap has been removed` fires once per `renderer.setSize` (every resize and every `dpr` change), on top of the one-time Phase 2 warning; pre-existing r3f default shadow config, benign, could be silenced with an explicit `shadows={false}` on `<Canvas>`. Owner: any.
 
+**Compute (Phase 4)**
+- Hash buffers (`cellStart` 16.8 MB, `cellCursor` 16.8 MB, `blockSums`, `sorted` 80 MB at 20M) stay allocated after a build (three has no API to free a `StorageBufferAttribute`'s GPU buffer; `Node.dispose()` only emits an event). Rebuilds reuse them; with `normals` 80 MB + `ao` 20 MB they are the ~214 MB the renderer-leak entry above counts. Owner: same as the renderer leak.
+- `K = 16` neighbours is a constant in `compute/params.ts`; no compiler spill was observed on Metal, so the `K = 12` fallback was never exercised. Owner: any port to a GPU where the normals kernel spills.
+- Verify is disabled above `BENCH_CAP` (2M): the CPU bench runs a per-chunk prefix subsample there, whose neighbourhoods differ from the full set, so the readbacks are not comparable. A same-subset GPU build (or a full 20M CPU run, ~2.5 min extrapolated) would enable it. Owner: any.
+- `scanBlockSums` is a single-thread serial loop over `T/256` block sums (16,384 at 20M; 1.70 ms for the whole scan row) — the serial floor if `T` grows past 2²². Owner: any larger tile.
+- Build wall time exceeds the GPU sum by ~35–50 ms at 2M and ~950 ms at 20M (each `timedCompute` awaits `computeAsync` then `resolveTimestampsAsync`, interleaved with 35 ms render frames); the panel shows both, only `gpu` is the kernel cost. A single command encoder for all passes would close the gap. Owner: Phase 6 perf tooling.
+- StrictMode mounts `<ComputeRunner>` twice; the first pipeline's hash buffers linger until unload in DEV only (same `dispose()` limitation).
+- CPU bench pins the loader worker (~11 s at 2M, 14.5 s for the 20M subsample); a `dispose` during a bench terminates the worker and the pending promise resolves `null`.
+- Panel "Benchmark (CPU, N pts)" title shows `min(total, BENCH_CAP)` = 2,000,000 on the full set while the actual subsample is 1,999,872 (256 × floor(2M/256)); the table row uses the real `bench.n`.
+
 **Tools (Phase 1)**
 - `check_hosting.walk()` has only a DNS-failure test (no local-http-server redirect test); `evaluate([])` raises; hop-cap exhaustion is silent.
 - `--stats` zero-intensity "no division warning" is not asserted; `rec.astype("<u2")` makes a redundant 160 MB copy; the DNS-failure test does a live `.invalid` lookup (slow on sandboxed resolvers).
@@ -90,8 +100,11 @@ Keyboard shortcuts (`F` refit, `H` toggle HUD) are bound via `onKeyDown` on the 
 |---|---|---|
 | positions (`qpos`) | 160 MB (`N×8` B) | 160 MB (main-thread `Uint32Array`, spec A6) |
 | flags | 20 MB (`ceil(N/4)×4` B) | 20 MB (main-thread `Uint32Array` mirror) |
+| normals (Phase 4, at load) | 80 MB (`N×4` B, oct u16×2) | 80 MB (zero-filled `Uint32Array` backing the attribute) |
+| ao (Phase 4, at load) | 20 MB (`ceil(N/4)×4` B) | 20 MB |
+| hash (Phase 4, at first build) | 113.6 MB (`cellStart` 16.8 + `cellCursor` 16.8 + `blockSums` 0.07 + `sorted` 80) | same (attribute backing arrays) |
 
-No other persistent per-point CPU copy: the loader worker transfers each chunk's buffer out and keeps nothing.
+Computed storage total after a 20M build ≈ 394 MB. No other persistent per-point CPU copy: the loader worker transfers each chunk's buffer out and keeps nothing (the CPU bench's subsample copy lives only for the run).
 
 ### Type deviations
 
@@ -188,6 +201,76 @@ Nine taps per fragment (centre + 8 ring directions at 45°): each is `depthTex.s
 - **DPR 2** (`?dpr=2`, 1280×800 CSS): `canvas.width = 2560`, `canvas.height = 1600`. Demo HUD `4.17 ms 240 fps draws 257 tris 4000001` — same vsync floor as DPR 1 (2M is too light to expose a DPR-driven cost on the demo set). Relief radius equal in CSS px to DPR 1 (offset scales with `dpr`), finer point sampling. Console: 0 errors, `PCFSoftShadowMap` repeated ×3 (one per `setSize`/`setPixelRatio` call during navigation).
 - **Console**, all steps above: 0 errors; only the two benign warnings (`THREE.Clock … deprecated`, `PCFSoftShadowMap has been removed`), the latter repeating once per resize/DPR change as noted.
 
+## Compute (phase 4)
+
+Machine/session as above (M4 Max, Chromium via Playwright MCP, DPR 1, size 2 px, home pose). GPU normals + ambient occlusion over **all** loaded points (independent of the render budget) in raw WGSL, three shading modes that consume them, and the same algorithms in TS as a benchmark and correctness oracle. Plan and rulings: `docs/superpowers/plans/2026-09-18-phase-4-compute.md`.
+
+### Buffers (`render/PointBuffers.ts`, `compute/pipeline.ts`)
+
+| buffer | owner | size | 2M | 20M |
+|---|---|---|---|---|
+| `normals` (oct u16×2 per point, `u32[N]`) | `createPointBuffers`, zero-filled at load | `N×4` B | 8 MB | 80 MB |
+| `ao` (u8 per point, 4 per word, `u32[ceil(N/4)]`) | `createPointBuffers`, zero-filled at load | `ceil(N/4)×4` B | 2 MB | 20 MB |
+| `cellStart` (`u32[T+1]`, atomic) | pipeline, first build | `(T+1)×4` B | 1.05 MB | 16.8 MB |
+| `cellCursor` (`u32[T]`, atomic) | pipeline, first build | `T×4` B | 1.05 MB | 16.8 MB |
+| `blockSums` (`u32[T/256]`) | pipeline, first build | `T/64` B | 4 KB | 65.5 KB |
+| `sorted` (`u32[N]`, point indices grouped by cell) | pipeline, first build | `N×4` B | 8 MB | 80 MB |
+
+`normals`/`ao` are allocated up front (plan ruling 2: +100 MB at 20M at load, never displayed before a build because the panel gates the lit modes on `compute.status === 'built'`). With `qpos` 160 + `flags` 20 the computed storage total after a 20M build is **≈ 394 MB** (160 + 20 + 80 + 20 + 16.8 + 16.8 + 0.07 + 80), well under the 256 MiB `maxBufferSize` per buffer (the largest single buffer is `qpos` at 160 MB). Hash buffers are never freed (no three API for it) and are reused by rebuilds. Compute never reads `flags`: hidden/deleted points stay in neighbourhoods (spec).
+
+### Hash sizing (A4) and measured occupancy
+
+`T = tableSizeFor(N) = nextPow2(max(1024, N/8))`: **262,144 at 2M, 4,194,304 at 20M** (`compute/params.ts`). Cell size = radius; cell key = `(x·73856093 ^ y·19349663 ^ z·83492791) & (T−1)` on the non-negative bounds-relative integer cell coordinates (kernels work in `q × dqScale`, no centroid — ruling 1, `dequantScale(manifest.bounds)` shared with the material). Collisions merge cells; the `d² ≤ r²` test keeps results exact, collisions only cost candidate work. Measured at 2M, radius 3 × spacing = 2.12 m: **232,825 occupied cells of 262,144 (occupancy 0.888)**, `cellStart[T] = 2,000,000` (Task 5's readback: 232,828 occupied, max 59 points per cell), and the GPU `cellStart` matched the CPU `buildGrid` oracle at **0 of 262,145 entries different** (Task 4 spike). Radius = `radiusMul × spacing`, `spacing = sqrt(areaXY / pointCount)` from the manifest's full count (0.707 m on the demo, 0.224 m on the full set); slider 1–6×, default 3× (2.12 m demo / 0.67 m full).
+
+### Pass order and dispatch shapes
+
+`build(radius)` runs seven dispatches, timed as five rows: `zero` (untimed bookkeeping: `atomicStore(&cellStart[i], 0)` over `T+1`, ruling 6 — no 16.8 MB CPU upload) → **count** (`atomicAdd` per point, `.compute(N, [64])`) → **scan** = `reduceBlocks` (`T/256` threads, serial 256-cell sum each) + `scanBlockSums` (one thread, serial exclusive scan over `T/256` sums: 1,024 at 2M, 16,384 at 20M) + `scanCells` (`T/256` threads, writes `cellStart` exclusive prefix, `cellCursor = cellStart`, `cellStart[T] = N`) → **scatter** (`atomicAdd` on `cellCursor`, writes `sorted`) → **normals** (thread per point) → **ao** (thread per word, `ceil(N/4)` threads, whole-word store). No `var<workgroup>`, no barriers: the block-serial scan is ~8M serial adds at T = 2²² and vitest-verifiable through the CPU mirror (`compute/cpu/hash.ts`); the three dispatches share one "scan" timing row. All point-parallel kernels use `instanceIndex` with an `i ≥ N` guard and `.compute(N, [64])`; three splits dispatches above 65,535 workgroups itself (A9) — verified by the 20M build writing every normal.
+
+### Atomics, helpers, kernel rules
+
+`cellStart`/`cellCursor` are `storage(attr, 'uint', n).toAtomic()` once each — the buffer struct becomes `value: array<atomic<u32>>`, so every `wgslFn` that touches them declares `ptr<storage, array<atomic<u32>>, read_write>` and the non-atomic kernels (`zero`, `reduce`, `scanCells`, `normals`, `ao`) go through `atomicLoad`/`atomicStore` (WGSL has no plain access to an atomic array). Compiled and ran first try; the two-node fallback was not needed. Shared WGSL (`pcvDecodePos`, `pcvCellKey`, `pcvOctEncode`, `pcvOctDecode`, `pcvSmallestEigenvector`) lives in one `wgsl()` code node passed as the `includes` of every `wgslFn` (`compute/wgsl/helpers.ts`). The Phase 0 kernel rules held throughout: every kernel returns `u32` and its call is `.toVar()`-ed (`call()` in `pipeline.ts` casts the untyped `wgslFn` result once); no `toReadOnly()`; `ao` and `flags` writes are thread-per-word; the `qpos` storage node is the same one the material reads.
+
+### Normals and AO
+
+`normalsKernel`: 27-cell neighbourhood (`c0 ± 1`, skipping negative cells), K = 16 nearest by insertion sort in registers (`array<f32,16>` + `array<u32,16>`), PCA over the point plus its ≤ 16 neighbours (n + 1 samples), smallest eigenvector via 3×3 cyclic Jacobi (8 sweeps, Numerical Recipes rotation, identical in WGSL and TS), oriented to `nz ≥ 0`, oct-encoded as two **unsigned** u16 (`round((p·0.5+0.5)·65535)`, decoded `/65535` on both sides — controller ruling `bb959f2`). Degenerate (< 3 neighbours or the eigen solve rejects) → the +Z word `0x80008000` (WGSL `round(32767.5)` → 32768 half-to-even; in JS the constant must be written unsigned, `(32768 | 32768 << 16) >>> 0`, or it compares as a negative int32 and never matches a `Uint32Array` element). `aoKernel`: per point, `1 − above/total` over neighbours within the radius, "above" = `d·n > eps` with `eps = 0.02 × radius`; `total = 0` → 1; byte = `round(a·255)`. Readback sanity at 2M: **+Z words 117,790 / 2,000,000 = 5.9 %** — mostly true +Z normals on flat, quantised ground (the CPU oracle agrees on 117,788 of them), not the fallback path alone; 99.9997 % of normals have `nz ≥ 0`; 1,724,782 distinct words; **AO mean 0.7046**.
+
+### Shading (`render/pointMaterial.ts`)
+
+`shading` uniform (`flat 0 / lit 1 / litAo 2`). The vertex stage oct-decodes `normalsNode[gi]`, transforms with `transformNormalToView`, and lights as a headlight `lambert = max(|n · v|, 0.15)` (`abs` = camera-facing flip, so orientation sign never matters at render); AO byte from `aoNode[gi >> 2]`. The three modes are one **branchless** blend — `lit = step(0.5, shading)`, `useAo = step(1.5, shading)`, `light = mix(1, lambert · mix(1, ao, useAo), lit)` — and `colorNode = lut × vertexStage(light)`, so the storage reads and the lighting evaluate once per vertex. The nested-`select` version rendered nothing in flat/litAo (three-0.186 finding recorded in the Phase 0 rules below). `lambert` is evaluated in flat mode too; pre-build all-zero normal words decode to `(0,0,−1)`, no NaN. Frame cost: 2M `4.17 ms` in flat, lit and lit + AO (vsync floor); 20M `34–37 ms` before the build, `34.7–35.7 ms` after, `35 ms` in lit + AO — no measurable change, `draws 257 tris 40000001` unchanged.
+
+### Timing semantics (`compute/timing.ts`)
+
+`timedCompute` = `performance.now()` around `renderer.computeAsync` (**submit**: CPU encode + submit, does not await GPU completion) then `resolveTimestampsAsync(TimestampQuery.COMPUTE)` (**gpu**: timestamp-query delta, `null` when `hasFeature('timestamp-query')` is false; the renderer is built with `trackTimestamp: true`). Only the resolve result is used, never `renderer.info` (ruling 7 — the HUD resets it). Metal quantises the GPU value to multiples of ~0.0655 ms (0.066 / 0.131 / 0.197 at the hash passes). `elapsedMs` (panel "wall") spans the whole `build()` including the six awaited round-trips; at 2M the warm wall (129–138 ms) exceeds the GPU sum (88–93 ms) by ~40 ms, at 20M the gap is ~950 ms (see Deferred) — cite `gpu`, not wall, as kernel cost.
+
+### CPU path (`compute/cpu/*`, `loader/loader.worker.ts`)
+
+Same algorithms in TS over typed arrays (`decodePositions` + `buildGrid`, `computeNormals`, `computeAo`; vitest: grid+kNN vs brute force, Jacobi on known matrices, oct round-trip < 0.5° (worst 0.0013° for +Z), exclusive scan vs `reduce`, plane AO = 1, corner AO 0.68 — 27 tests across `compute/params.test.ts`, `compute/cpu/*.test.ts`, `compute/verify.test.ts`). Runs in the existing loader worker (ruling 4: `cpuBench`/`cancelBench` on `LoaderIn`, `benchProgress`/`benchDone`/`benchCancelled` on `LoaderOut`), cooperative in 100k-point slices with a `setTimeout(0)` yield so a cancel lands between slices; results transferred back. Input = `benchWords(qpos.array, chunks, min(N, BENCH_CAP))`: the whole array when `N ≤ 2M` (then `slice()`d so the attribute's own buffer is never transferred), else the first `floor(n/chunks)` points of every chunk packed contiguously without padding — 256 × 7,812 = **1,999,872** points on the full set. The bench posts `store.bench`; DEV hook `window.__pcvBench = { state, run }` (separate from `window.__pcvCompute = { build, readback, tableSize, timings, state, cpuCellStart }`, owned by `<ComputeRunner>`'s effect). `readback()` throws before the first build (`getArrayBufferAsync` on an attribute no pipeline has bound). Cancel verified: Cancel ~3 s in → `status 'cancelled', progress 0.43`, re-run works.
+
+### Verify (`compute/verify.ts`)
+
+`compareResults(gpuNormals, gpuAo (packed words), cpuNormals, cpuAo, n)` → sign-insensitive angle per point (`acos(|a·b|)`), median/max, `+Z` count on the GPU side, AO MAE normalised to [0,1], non-finite count. Enabled only when `pointCount ≤ BENCH_CAP` (same point set on both sides); on the full set the panel shows "Verify needs the same points on both sides — demo set only." **2M result: `n 2,000,000 · median 0.000° · max 80.77° · AO MAE 0.0001 · non-finite 0 · +Z 117,790`.** Tail: ≤ 0.1° 1,999,570 · (0.1, 1]° 217 · (1, 5]° 123 · (5, 20]° 76 · > 20° 14 — fraction > 1° = 1.07e-4, all on near-isotropic neighbourhoods where f32 (WGSL) vs f64 (JS) Jacobi picks a different smallest eigenvector; neither side degenerate. AO: 52,676 of 2M bytes differ, 51,808 by exactly 1 LSB (WGSL `round()` is ties-to-even, `Math.round` is half-up), 868 by more (points whose normal differs). Verify reports MAE with no gate; the median is the acceptance number.
+
+### Measured
+
+Radius 3 × spacing; GPU = timestamp query per pass; console 0 errors in every run (2 benign warnings on the demo, 3 on the full set — `PCFSoftShadowMap` fires once per StrictMode mount).
+
+| pass | 2M gpu ms (Task 5 / Task 6 / this task) | 20M gpu ms (cold / warm) | CPU ms @2M (3 runs) | CPU ms, 20M subsample (1,999,872 pts) |
+|---|---|---|---|---|
+| count | 0.07 / — / 0.07 | 1.44 / 1.84 | — | — |
+| scan | 0.13 / — / 0.20 | 1.64 / 1.70 | — | — |
+| scatter | 0.20 / — / 0.13 | 5.51 / 5.51 | — | — |
+| hash (sum) | 0.40 / 0.52 / 0.40 | 8.59 / 9.05 | 17.4 / 17.3 / 18.6 | 17.4 |
+| normals | 55.31 / 55.64 / 55.25 | 814.42 / 818.15 | 5,751 / 6,247 / 5,781 | 7,167 |
+| ao | 36.96 / 31.78 / 31.52 | 717.03 / 704.25 | 4,662 / 4,638 / 4,868 | 6,906 |
+| total gpu | 92.67 / 87.94 / 87.17 | 1,540.04 / 1,531.45 | | |
+| wall | 129 / — / 138 ms | 2,519 / 2,488 ms | ~11 s | 14.5 s |
+
+- 2M target < 200 ms GPU: met (88–93 ms). First-ever build after a reload includes pipeline compile (Task 5: normals 56.75, ao 36.70, wall 208 ms; Task 4 hash-only: 181.8 ms cold → 20.1 ms warm).
+- 20M: `normals` 818 ms + `ao` 704 ms ≈ 17.5× the 2M cost for 10× the points — the full set is denser per cell (0.224 m spacing, radius 0.67 m) and the 27-cell scan touches more candidates. Hash passes scale ~20×. `T = 4,194,304`, `builtRadius 0.6708 m`.
+- CPU vs GPU at 2M: normals ~100×, ao ~150×; the CPU hash (~17 ms) is far below the GPU-side wall because `performance.now()` in a worker is coarse and decode + grid build over 2M points is genuinely cheap next to kNN.
+- Screenshots (`.playwright-mcp/`): `shading-flat.png`, `shading-lit.png`, `shading-litao.png`, `shading-litao-close.png` (2M, EDL off close-up: facets from compute shading alone, no 16×16 chunk-grid seams), `shading-litao-20m.png` (20M, Lit + AO, EDL on, HUD `36.07 ms 28 fps draws 257 tris 40000001`, panel table visible).
+- Panel: Compute group (radius slider `1–6×` step 0.5 with the metre readout, Build button → "Building…"/"Built", timing table submit/gpu per pass + total + wall, Shading select with lit/litAo disabled until built; Build re-enables when the radius moves — ruling 5); Benchmark group (Run CPU / Cancel with progress %, GPU-vs-CPU ms table labelled `(all)`/`(cap)` when the bench ran on a subsample, Verify button gated on built + `N ≤ 2M`, summary line).
+
 ## Phase 0 spike findings (three 0.186.0)
 
 Machine: Apple M4 Max, macOS 25.6.0, Chromium 153.0.8010.48 (Playwright), WebGPU adapter `apple` / `metal-3`, DPR 1, 240 Hz rAF cap (4.17 ms empty frame). Run: `?n=2000000&size=3|8`.
@@ -213,6 +296,7 @@ Run: `?n=2000000&size=3`. Console: 0 errors (same two benign warnings as above).
 - **`wgslFn` storage pointer params work.** `fn classifyEast(qpos: ptr<storage, array<vec2<u32>>, read_write>, flags: ptr<storage, array<u32>, read_write>, word: u32, count: u32)` compiles and runs. `WGSLNodeFunction.js` parses any `ptr<…>` param as type `pointer` (`renderers/webgpu/nodes/WGSLNodeFunction.js`, `resolvedType.startsWith('ptr')`); `FunctionCallNode.generate` emits `&` + the node's property name (`nodes/code/FunctionCallNode.js:107-119`), which for storage buffers is `NodeBuffer_N.value` (`WGSLNodeBuilder.getPropertyName`, storage buffers are wrapped in `struct NodeBuffer_NStruct { value: array<T> }`). Generated call: `nodeVar0 = classifyEast( &NodeBuffer_992.value, &NodeBuffer_993.value, instanceIndex, 2000000u );`. Params are passed as a **named object** (`FunctionCallNode` accepts object or positional array; object matched by param name).
 - **Void `wgslFn` calls are silently dropped in three 0.186.** First attempt (`-> void`, call as a bare statement, then with `.toStack()`) compiled to an empty kernel body (`// code … if ( instanceIndex >= … ) { return; }` and nothing else); the flags buffer read back all zeros and no red points. Cause: `FunctionCallNode.generate` returns the call snippet but never emits its own statement line (no `addLineFlowCode`, unlike `AssignNode`/`VarNode`/`LoopNode`/`ExpressionNode`), and `StackNode.build` ignores the return value of `node.build(builder, 'void')`. Fix: kernel returns `u32` and the call is consumed with `.toVar()` (`VarNode` always emits `nodeVar = …`). Rule for Task 6: **every `wgslFn` kernel entry returns a value and is `.toVar()`-ed**, or the store is done in TSL (`flags.element(i).assign(wgslFn(...))`). Not the brief's Step 2 fallback — pure-TSL kernels not needed.
 - `toReadOnly()` **must not** be used on a storage node shared between compute and render: `setAccess` mutates the node, and `WGSLNodeBuilder.getNodeAccess` (`renderers/webgpu/nodes/WGSLNodeBuilder.js:1254`) already forces `read` bindings for non-compute stages. Same `storage()` node is bound `var<storage, read_write>` in compute and `read` in vertex with no extra call.
+- **Nested `select()` in the vertex stage can hoist a shared node's first read into a branch (Phase 4, Task 5).** `select(shading.equal(0), 1, select(shading.equal(1), lambert, lambert.mul(ao)))` compiled to `if/else`, and the node builder emitted the first evaluation of the cached `modelViewMatrix` / `v_positionView` variables inside the `shading == 1` branch (where `positionView` was first referenced); the clip-space line after the branch read `v_positionView` unassigned on the other two paths, so every quad landed at one off-screen clip position and nothing rendered. Verified via `renderer.debug.getShaderAsync` WGSL dump. Rule: **mode blends in the vertex stage are branchless (`step`/`mix`); never let the first use of `positionView`/`modelViewMatrix` (or any shared cached node) sit inside a `select` branch.** `select` over purely local nodes (the oct-fold branches) is fine.
 - **Index path:** `instanceIndex` in the vertex stage is the point index (Sprite instancing), `instanceIndex` in compute is `globalId.x` = word index. `flags[idx >> 2] >> ((idx & 3) * 8) & 0xff` gives the point's byte. Verified: east half (x > 500, screen lower-left from the default camera) red, west keeps class colours; GPU readback of the flags buffer counts 998,869 east points = CPU count over `qposAttr.array`. `vertexIndex` not needed.
 - **Thread-per-word rule:** flag bytes are packed 4 per u32; the kernel dispatches `ceil(n/4)` threads and each stores one whole word (no atomics, no partial-byte writes). Any later pass writing flags (lasso, select, delete) must also be thread-per-word, or use `atomicOr`/`atomicAnd` on a `storage(...).toAtomic()` node if it needs per-point writes.
 - **Timing (2M points, 500k words):** `submit` = CPU encode+submit time of `renderer.computeAsync` (it is `await init(); this.compute(...)`, `Renderer.js:2992-2998`, and does **not** await GPU completion — not a wall-clock kernel time). HUD number 1.0–1.6 ms is the first effect-run dispatch; `<StrictMode>` double-mounts so it is actually the second dispatch (pipeline already cached), the gap is not attributable to pipeline compile without a non-StrictMode measurement. Repeat dispatches from the console: 0.0–0.1 ms; GPU via `resolveTimestampsAsync('compute')` 0.066–0.197 ms (Metal timestamp granularity, values quantise to 0.066/0.131/0.197). `timestamp-query` **available** (`hasFeature('timestamp-query') === true`); `resolveTimestampsAsync` returns the duration and also writes `info.compute.timestamp`. `THREE.TimestampQuery.COMPUTE` exports from `three/webgpu` (`constants.js`, `{ COMPUTE: 'compute', RENDER: 'render' }`). Requires `trackTimestamp: true` at renderer construction.

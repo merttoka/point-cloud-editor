@@ -37,6 +37,8 @@ The four specs were written before phases 1–2 shipped. Shipped shapes they dep
 
 ## Phase 4 — Compute
 
+**Applied 2026-09-18 (plan)** — see `docs/superpowers/plans/2026-09-18-phase-4-compute.md` "Rulings on the spec-review items" for how each item below was resolved, and `docs/superpowers/specs/2026-09-15-phase-4-compute-design.md` § Plan rulings / `docs/ARCHITECTURE.md` § Compute (phase 4) for the shipped result.
+
 1. **Dequant uniforms**: expose `dqScale` / `dqMinCentred` (and the centroid) from `PointBuffers` or a small `render/dequant.ts` so material, compute kernels and Phase 5 pick share one set. Today they are closure-private in `createPointMaterial`.
 2. **Where `normals`/`ao` live**: the vertex stage reads them for lit modes, but the material is created at manifest time (before any build). Options: (a) allocate `normals` (`u32[N]`, 80 MB) and `ao` (`u32[ceil(N/4)]`, 20 MB) zero-filled in `createPointBuffers` — simplest, +100 MB GPU up front at 20M (memory table becomes ~272 MB before the hash build; total unchanged after); (b) create the material lazily / rebuild it after the first build. Recommend (a); amend the memory table and note that lit modes before a build read zeros (= `+Z`, ao 1 if encoded as 255) — pick encodings so zero-filled buffers render sanely, or gate lit modes on `built === true` as the spec already does.
 3. **Inputs section**: "hidden/deleted are not excluded" — fine, but note `flags` is also what Phase 5 writes; compute reads only.

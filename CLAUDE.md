@@ -20,6 +20,7 @@ Clean-room WebGPU point cloud viewer/editor (three 0.186 `three/webgpu` + TSL, R
 - Pinned deps only (`three@0.186.0`, fiber `9.7.0`, drei `10.7.8`, react `19.3.0`, vite `8.3.0`); approved extras: vitest, pytest, `fflate`. No leva, no zustand, no pyproj.
 - WebGPU only. Compute = raw WGSL via `wgslFn` + `storage()` nodes; every kernel **returns a value and is `.toVar()`-ed**; never `toReadOnly()` on a shared storage node; flags writes are thread-per-word or atomic; `instanceIndex` with an `i ≥ N` guard (three splits dispatches > 65,535).
 - Hidden/deleted points collapse the quad (`sizeNode = 0`), never a huge position. Anything derived from the point index inside `colorNode` goes through `vertexStage()`.
+- Vertex-stage mode blends are branchless (`step`/`mix`): a nested TSL `select()` can hoist the first read of `positionView`/`modelViewMatrix` into one branch, leaving clip-space unassigned on the others → nothing renders (ARCHITECTURE, Phase 0 findings).
 - `src/viewer/` stays self-contained (CSS modules, `--pcv-*` tokens over Lab names, keys on the viewer root only).
 - vitest runs in node: unit tests import pure modules only; DOM/WebGPU is verified in the browser.
 - StrictMode stays on; the renderer factory is idempotent per canvas (see ARCHITECTURE "Renderer factory under StrictMode").

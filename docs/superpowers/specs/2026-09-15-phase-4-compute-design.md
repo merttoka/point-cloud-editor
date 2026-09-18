@@ -97,3 +97,17 @@ The worker holds no copy of `qpos` (A6): on Run, the main thread posts `{ type: 
 ## Docs
 
 ARCHITECTURE: compute pipeline (buffers, pass order, hash sizing rationale, dispatch shape, timing semantics, CPU-verify method). README: perf table rows for normals + AO GPU vs CPU @2M.
+
+## Plan rulings (2026-09-18)
+
+Implementation rulings, deviations and measured numbers for this spec are recorded in `docs/superpowers/plans/2026-09-18-phase-4-compute.md` ("Rulings on the spec-review items" table plus the extra rulings under it) and in `docs/ARCHITECTURE.md` § Compute (phase 4). The ones that change this spec's text:
+
+- **Scan without workgroup memory**: reduce-then-scan stays three dispatches but each is thread-per-block with a serial 256-entry loop (`reduceBlocks`, single-thread `scanBlockSums`, `scanCells`); no `var<workgroup>`, no barriers. The three share one "scan" timing row.
+- **Atomic node policy**: one `storage(attr, 'uint', n).toAtomic()` node per atomic buffer (`cellStart`, `cellCursor`); kernels that only read or plainly write them use `atomicLoad`/`atomicStore`. The two-node fallback was not needed.
+- **Zero kernel**: `cellStart` is cleared by a `zeroCells` dispatch at the start of every build, not by a CPU upload (ruling 6).
+- **Hash buffers kept**: "freed after the build" is dropped — three has no API to release a storage attribute's GPU buffer; `cellStart`/`cellCursor`/`blockSums`/`sorted` stay allocated and are reused by rebuilds (Deferred).
+- **Verify ≤ cap**: Verify runs only when `pointCount ≤ BENCH_CAP` (2M). On larger sets the CPU bench runs a per-chunk prefix subsample (`benchWords`, packed contiguously without padding) for timing only and Verify is disabled with a panel note.
+- **Dequant sharing via `dequantScale`**: no new module; kernels take `dqScale` built from `dequantScale(manifest.bounds)` (`format/quant.ts`) and work in bounds-relative coordinates (no centroid); the material keeps its own uniform from the same function.
+- **Oct words are unsigned** and decode `/65535` on both sides; the +Z word in JS is `0x80008000`. `readback()` throws before the first build. DEV hooks: `window.__pcvCompute` (`ComputeRunner`) and `window.__pcvBench` (`useLoader`).
+- **Shading blend is branchless** (`step`/`mix`), not the nested `select` chain — see the three-0.186 rule in ARCHITECTURE.
+
