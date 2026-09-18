@@ -15,6 +15,10 @@ export interface PointBuffers {
   flags: StorageBufferAttribute
   qposNode: StorageBufferNode<'uvec2'>
   flagsNode: StorageBufferNode<'uint'>
+  normals: StorageBufferAttribute   // oct-encoded normal per point (2 × u16), written by compute
+  ao: StorageBufferAttribute        // u8 per point packed 4/word, written by compute (thread-per-word)
+  normalsNode: StorageBufferNode<'uint'>
+  aoNode: StorageBufferNode<'uint'>
   loaded: Uint8Array           // 1 per chunk once uploaded
   uploadRange(offset: number, words: Uint32Array): void
   dispose(): void
@@ -27,8 +31,12 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
   // Same node bound read_write in compute (later phases) and read in vertex; never toReadOnly().
   const qposNode = storage(qpos, 'uvec2', count)
   const flagsNode = storage(flags, 'uint', flagWords)
+  const normals = new StorageBufferAttribute(new Uint32Array(count), 1)
+  const ao = new StorageBufferAttribute(new Uint32Array(flagWords), 1)
+  const normalsNode = storage(normals, 'uint', count)
+  const aoNode = storage(ao, 'uint', flagWords)
   return {
-    count, qpos, flags, qposNode, flagsNode,
+    count, qpos, flags, normals, ao, qposNode, flagsNode, normalsNode, aoNode,
     loaded: new Uint8Array(chunkCount),
     uploadRange(offset, words) {
       ;(qpos.array as Uint32Array).set(words, offset * WORDS_PER_POINT)
@@ -41,6 +49,8 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
       // so these GPU buffers and the renderer live until the page unloads.
       qposNode.dispose()
       flagsNode.dispose()
+      normalsNode.dispose()
+      aoNode.dispose()
     },
   }
 }
