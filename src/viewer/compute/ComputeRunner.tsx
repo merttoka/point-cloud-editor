@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import type * as THREE from 'three/webgpu'
 import type { Manifest } from '../loader/manifest'
@@ -7,18 +7,17 @@ import type { ViewerApi } from '../render/Scene'
 import { useViewerStore } from '../state/store'
 import { dequantScale } from '../format/quant'
 import { buildGrid, decodePositions } from './cpu/hash'
-import { createComputePipeline, type ComputePipeline } from './pipeline'
+import { createComputePipeline } from './pipeline'
 
 // Owns the compute pipeline (needs the renderer, so it lives inside <Canvas>) and exposes build/readback on the api.
 export function ComputeRunner({ buffers, manifest, api }: { buffers: PointBuffers; manifest: Manifest; api: ViewerApi }) {
   const gl = useThree((s) => s.gl)
   const store = useViewerStore()
-  const ref = useRef<ComputePipeline | null>(null)
 
   useLayoutEffect(() => {
     const p = createComputePipeline(gl as unknown as THREE.WebGPURenderer, buffers, manifest)
-    ref.current = p
     api.build = async (radius) => {
+      if (store.get().compute.status === 'running') return
       store.set({ compute: { ...store.get().compute, status: 'running', error: undefined } })
       const t0 = performance.now()
       try {
@@ -37,7 +36,11 @@ export function ComputeRunner({ buffers, manifest, api }: { buffers: PointBuffer
         build: api.build, readback: api.readback, tableSize: p.tableSize, timings: () => store.get().compute.timings, cpuCellStart,
       }
     }
-    return () => { api.build = undefined; api.readback = undefined; ref.current = null; p.dispose() }
+    return () => {
+      api.build = undefined; api.readback = undefined
+      if (import.meta.env.DEV) delete (window as unknown as { __pcvCompute?: unknown }).__pcvCompute
+      p.dispose()
+    }
   }, [gl, buffers, manifest, api, store])
 
   return null

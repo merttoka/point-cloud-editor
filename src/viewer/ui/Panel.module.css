@@ -8,3 +8,7 @@
 .row select { grid-column: 1 / -1; background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; padding: 2px 4px; font: inherit; }
 .group { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--pcv-border); }
 .groupTitle { color: var(--pcv-text-2); font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; font-size: 10px; }
+.button { grid-column: 1 / -1; padding: 4px 8px; background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; font: inherit; cursor: pointer; }
+.button:disabled { opacity: 0.5; cursor: default; }
+.table { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 8px; color: var(--pcv-text-2); font: 11px/1.4 var(--pcv-mono); }
+.table span:nth-child(3n+2), .table span:nth-child(3n+3) { text-align: right; }

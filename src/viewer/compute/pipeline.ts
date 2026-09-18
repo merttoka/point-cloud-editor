@@ -5,9 +5,11 @@ import type { PointBuffers } from '../render/PointBuffers'
 import type { Manifest } from '../loader/manifest'
 import { dequantScale } from '../format/quant'
 import type { PassTiming } from '../state/store'
-import { SCAN_BLOCK, tableSizeFor } from './params'
+import { EPS_MUL, SCAN_BLOCK, tableSizeFor } from './params'
 import { timedCompute } from './timing'
 import { zeroCells, countCells, reduceBlocks, scanBlockSums, scanCells, scatterPoints } from './wgsl/hash'
+import { normalsKernel } from './wgsl/normals'
+import { aoKernel } from './wgsl/ao'
 
 export interface ComputeReadback { normals: Uint32Array; ao: Uint32Array; cellStart: Uint32Array }
 
@@ -45,6 +47,10 @@ export function createComputePipeline(renderer: THREE.WebGPURenderer, buffers: P
   const kScanSums = Fn(() => call(scanBlockSums, { blockSums, i: instanceIndex, blocks: uint(blocks) }))().compute(1, [1])
   const kScanCells = Fn(() => call(scanCells, { cellStart, cellCursor, blockSums, b: instanceIndex, blocks: uint(blocks), tableSize: uint(T) }))().compute(blocks, [64])
   const kScatter = Fn(() => call(scatterPoints, { ...common, cellCursor, sorted, i: instanceIndex }))().compute(N, [64])
+  const words = Math.ceil(N / 4)
+  const eps = uniform(0)
+  const kNormals = Fn(() => call(normalsKernel, { ...common, cellStart, sorted, normals: buffers.normalsNode, i: instanceIndex }))().compute(N, [64])
+  const kAo = Fn(() => call(aoKernel, { ...common, cellStart, sorted, normals: buffers.normalsNode, ao: buffers.aoNode, w: instanceIndex, eps }))().compute(words, [64])
 
   async function hashPasses(): Promise<PassTiming[]> {
     const out: PassTiming[] = []
@@ -58,17 +64,17 @@ export function createComputePipeline(renderer: THREE.WebGPURenderer, buffers: P
     return out
   }
 
-  // getArrayBufferAsync throws if the attribute was never bound by a pipeline; an unbound buffer was never
-  // written by the GPU, so its CPU-side array is the true content.
-  async function readAttr(attr: THREE.StorageBufferAttribute): Promise<Uint32Array> {
-    try { return new Uint32Array(await renderer.getArrayBufferAsync(attr)) } catch { return new Uint32Array(attr.array as Uint32Array) }
-  }
+  const readAttr = async (attr: THREE.StorageBufferAttribute) => new Uint32Array(await renderer.getArrayBufferAsync(attr))
 
   return {
     tableSize: T,
     async build(r) {
       radius.value = r
-      return hashPasses()                                         // Task 5 appends normals + ao
+      eps.value = EPS_MUL * r
+      const out = await hashPasses()
+      out.push(await timedCompute(renderer, kNormals, 'normals'))
+      out.push(await timedCompute(renderer, kAo, 'ao'))
+      return out
     },
     async readback() {
       const [normals, ao, cellStart] = await Promise.all([readAttr(buffers.normals), readAttr(buffers.ao), readAttr(cellStartAttr)])
