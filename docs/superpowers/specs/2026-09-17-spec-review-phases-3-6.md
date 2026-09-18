@@ -23,6 +23,8 @@ The four specs were written before phases 1–2 shipped. Shipped shapes they dep
 
 ## Phase 3 — EDL
 
+**Applied 2026-09-17 (plan)** — see `docs/superpowers/plans/2026-09-17-phase-3-edl.md` "Rulings on the spec-review items" for how each item below was resolved, and `docs/superpowers/specs/2026-09-15-phase-3-edl-design.md` / `docs/ARCHITECTURE.md` § Post-processing (phase 3) for the shipped result.
+
 1. **`Scene.tsx` handover**: the pipeline should be built in a child of `<Canvas>` (`useThree().gl/scene/camera` are the stable instances now) and memoised per `gl`; `useFrame(() => pipeline.render(), 1)` as specced. Under StrictMode the priority subscription is added/removed twice — r3f balances it, but verify `internal.priority` returns to 0 on unmount (spike step).
 2. **Uniform wiring**: "Values live in the viewer store; `Scene.tsx` writes the uniforms on change" → follow the shipped pattern: the pipeline component subscribes to the store (like `ChunkSprites`), no prop plumbing through `Scene`. Store gains `edl: { enabled, radiusPx, strength }` with defaults `true / 1.5 / 1`.
 3. **Baseline size**: acceptance says "20M, DPR 1, **size 3 px**"; every shipped 20M number is at **2 px**. Amend to 2 px so EDL on/off deltas compare against the recorded rows, or add a 3 px row to both.

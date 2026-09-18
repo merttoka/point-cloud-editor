@@ -10,6 +10,7 @@ export interface PointCloudViewerProps {
   manifestUrl: string
   theme?: 'dark' | 'light'
   className?: string
+  dpr?: number            // canvas pixel ratio override (default: device)
 }
 
 // One store per viewer instance, provided via context so several viewers can coexist on a page.
@@ -22,7 +23,7 @@ export function PointCloudViewer(props: PointCloudViewerProps) {
   )
 }
 
-function ViewerInner({ manifestUrl, theme, className }: PointCloudViewerProps) {
+function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerProps) {
   const store = useViewerStore()
   const status = useStore((s) => s.status)
   const error = useStore((s) => s.error)
@@ -43,7 +44,7 @@ function ViewerInner({ manifestUrl, theme, className }: PointCloudViewerProps) {
       <div id="hud" ref={hudEl} className={styles.hud} />
       <Panel />
       {message !== null ? <div className={styles.message}>{message}</div>
-        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} api={api} hudEl={hudEl} />}
+        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} api={api} hudEl={hudEl} dpr={dpr} />}
     </div>
   )
 }

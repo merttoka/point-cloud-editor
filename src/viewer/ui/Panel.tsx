@@ -11,10 +11,12 @@ export function Panel() {
   const colorMode = useStore((s) => s.colorMode)
   const colormap = useStore((s) => s.colormap)
   const showHud = useStore((s) => s.showHud)
+  const edl = useStore((s) => s.edl)
 
   const total = manifest?.pointCount ?? 0
   const frac = total ? loaded.points / total : 0
   const budgetPct = Math.round(budget * 100)
+  const setEdl = (patch: Partial<typeof edl>) => store.set({ edl: { ...store.get().edl, ...patch } })
   return (
     <div className={styles.panel}>
       <div className={styles.name}>{manifest?.name ?? 'loading…'}</div>
@@ -35,6 +37,15 @@ export function Panel() {
             <option value="viridis">Viridis</option><option value="turbo">Turbo</option><option value="grayscale">Grayscale</option>
           </select></label>
       )}
+      <div className={styles.group}>
+        <div className={styles.groupTitle}>Lighting</div>
+        <label className={styles.row}><span>EDL</span>
+          <input type="checkbox" checked={edl.enabled} onChange={(e) => setEdl({ enabled: e.target.checked })} /></label>
+        <label className={styles.row}><span>Radius</span><span>{edl.radiusPx.toFixed(1)}px</span>
+          <input type="range" min={1} max={4} step={0.5} value={edl.radiusPx} disabled={!edl.enabled} onChange={(e) => setEdl({ radiusPx: Number(e.target.value) })} /></label>
+        <label className={styles.row}><span>Strength</span><span>{edl.strength.toFixed(1)}</span>
+          <input type="range" min={0} max={4} step={0.1} value={edl.strength} disabled={!edl.enabled} onChange={(e) => setEdl({ strength: Number(e.target.value) })} /></label>
+      </div>
       <label className={styles.row}><span>HUD</span>
         <input type="checkbox" checked={showHud} onChange={(e) => store.set({ showHud: e.target.checked })} /></label>
     </div>

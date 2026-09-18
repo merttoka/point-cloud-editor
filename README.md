@@ -3,9 +3,9 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 2 done: streaming viewer on the demo set.
+Phase 3 done: eye-dome lighting post pass (toggle, radius, strength).
 
-2M: 240 fps (vsync) · 20M: 30 fps at 100 % budget, 57 fps at 50 % (M4 Max, Chromium, DPR 1, size 2 px)
+2M: 240 fps (vsync) · 20M: 33.68 ms off / 33.04 ms on at 100 % budget, 17.09 / 17.36 ms at 50 % (M4 Max, Chromium, DPR 1, size 2 px)
 
 ## Setup
 ```bash
@@ -51,7 +51,7 @@ Preprocess of the raw tile (51,494,885 points → 20M + 2M) takes 8.3 s on an M4
 npm run data:demo   # fetch the 2M demo set into public/data/demo/ (release asset)
 npm run dev         # Chrome with WebGPU → http://localhost:5173
 ```
-`<PointCloudViewer manifestUrl="/data/demo/manifest.json" theme="dark" />` — `theme?: 'dark' | 'light'`, `className?`.
+`<PointCloudViewer manifestUrl="/data/demo/manifest.json" theme="dark" />` — `theme?: 'dark' | 'light'`, `className?`, `dpr?: number` (canvas pixel ratio override; default device-clamped `[1, 2]`; the dev harness's `?dpr=` clamps to `[0.5, 4]`).
 
 ## Controls
 | Input | Action |
@@ -59,7 +59,7 @@ npm run dev         # Chrome with WebGPU → http://localhost:5173
 | drag / wheel | orbit / zoom (OrbitControls, +Z up) |
 | `F` | refit camera to dataset |
 | `H` | toggle HUD |
-| panel | point budget %, point size px, colour mode (height / intensity / class), colormap |
+| panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4) |
 Keys work only while the viewer has focus (click it first).
 
 ## Phase 0 spike results

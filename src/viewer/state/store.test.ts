@@ -31,4 +31,11 @@ describe('createStore', () => {
     s.set({})
     expect(s.get()).not.toBe(a)
   })
+  it('edl defaults: on, 1.5 px, strength 1; nested patch replaces the object', () => {
+    const s = createStore(initialState)
+    expect(s.get().edl).toEqual({ enabled: true, radiusPx: 1.5, strength: 1 })
+    s.set({ edl: { ...s.get().edl, radiusPx: 3 } })
+    expect(s.get().edl).toEqual({ enabled: true, radiusPx: 3, strength: 1 })
+    expect(initialState.edl.radiusPx).toBe(1.5)   // initial object untouched
+  })
 })

@@ -19,17 +19,17 @@ Out: SSAO or any other screen-space effect, MSAA, resolution scaling, EDL on the
 ```
 src/viewer/render/postprocessing.ts   # builds the pipeline; owns the pass node + EDL params
 src/viewer/render/edl.ts              # edlShade(): pure TSL Fn (colour, logDepth taps) → shaded colour; plus edlObscurance() TS mirror
-src/viewer/render/Scene.tsx           # useFrame(priority 1) → pipeline.render()
+src/viewer/render/PostPass.tsx        # owns the pipeline (effect-built, StrictMode-safe); useFrame(priority 1) → pipeline.render()
 src/viewer/ui/Panel.tsx               # "Lighting" group: EDL on/off, radius, strength
 ```
 
 ### Pipeline (three 0.186)
 - `new THREE.RenderPipeline(renderer, outputNode)` (`three/webgpu`). `PostProcessing` is the same class under a name deprecated since r183; do not use it.
-- `const scenePass = pass(scene, camera)` (`three/tsl`). Colour: `scenePass.getTextureNode('output')`. Depth: `scenePass.getViewZNode('depth')` (view-space Z, negative in front of the camera); `getLinearDepthNode('depth')` also exists but is orthographic-mapped, not used. `getTextureNode('depth')` gives the raw depth texture node if a tap needs `.sample(uv)` at an offset.
+- `const scenePass = pass(scene, camera)` (`three/tsl`). Colour: `scenePass.getTextureNode('output')`. Depth: `scenePass.getTextureNode('depth')` (raw depth texture), sampled with `.sample(uv)` at all nine taps (centre included) and converted with `perspectiveDepthToViewZ` — `getViewZNode('depth')` is centre-only and can't serve the ring, so it is not used for any tap.
 - `pipeline.outputNode = edlShade(...)`; `pipeline.outputColorTransform` stays `true` (default) so tone mapping/colour space are applied once, after EDL.
 - Sample offsets use `screenSize` (`three/tsl`) so the radius is in physical pixels: `uvOffset = dir * radiusPx * dpr / screenSize`. `radiusPx` is a CSS-px uniform; `dpr` comes from `renderer.getPixelRatio()`.
 - Pass render target: `HalfFloatType` colour, `DepthTexture` (`FloatType` on WebGPU per `PassNode.setup`), `samples: 0` (no MSAA; matches the antialias-off renderer).
-- Toggle off = `pipeline.outputNode = scenePass` (colour passthrough), not a bypass of the pipeline, so the frame path is identical either way and "off" output equals the Phase 2 render bit-for-bit.
+- Toggle off = `pipeline.outputNode = scenePass` (colour passthrough), not a bypass of the pipeline, so the frame path is identical either way and "off" output equals the Phase 2 render within 1/255 per channel.
 
 ### r3f handover (fiber 9.7.0)
 `useFrame(() => pipeline.render(), 1)`. Any subscriber with `priority > 0` increments `internal.priority`, and the loop only calls `gl.render(scene, camera)` when `internal.priority === 0` (`events-*.esm.js`, `subscribe` and `loop`), so the pipeline becomes the sole renderer. `frameloop` stays `"always"`. On unmount the subscription's cleanup decrements the flag and r3f resumes its own render.
@@ -54,16 +54,16 @@ Params (uniforms): `radiusPx` 1–4, default 1.5; `strength` 0–4, default 1; `
 ## Acceptance criteria
 
 - Screenshots on the demo set before/after EDL show visible surface relief (roofs vs walls, tree crowns).
-- HUD frame ms at 20M, DPR 1, size 3 px: EDL on − EDL off ≤ 2.0 ms (report both).
+- HUD frame ms at 20M, DPR 1, size 2 px: EDL on − EDL off ≤ 2.0 ms (report both).
 - No visible seams at chunk borders (the pass is screen-space; check a screenshot across a chunk boundary).
 - Toggle off → matches the Phase 2 render within 1/255 per channel (Playwright screenshot diff; the scene now goes through a `HalfFloatType` intermediate and one output transform, so ±1 LSB rounding is expected, larger deltas mean a colour-space double-apply).
-- HUD `draws` with the pipeline = chunks + 2 (scene pass + the pipeline's output quad + the renderer's output blit); `tris` = `2 × visible + 2`. Document, do not "fix".
+- HUD `draws`/`tris` with the pipeline: record what the HUD shows (chunks + 1 or + 2); document, do not fix.
 - DPR 2: radius visually equal in CSS px to DPR 1 (offset scales with `dpr`).
 - Console clean (only the two benign warnings noted in ARCHITECTURE).
 
 ## Risks and spikes
 
-- **Depth read on WebGPU**: `getViewZNode('depth')` samples the pass depth texture; confirm it resolves in a fragment post pass over Sprite quads (spike: constant-colour output from `viewZ` before the kernel). Fallback: `getTextureNode('depth').sample(uv)` + manual `perspectiveDepthToViewZ` from `three/tsl`.
+- **Depth read on WebGPU**: `getTextureNode('depth').sample(uv)` + `perspectiveDepthToViewZ` (`three/tsl`) for all nine taps; confirm it resolves in a fragment post pass over Sprite quads (spike: constant-colour output from `viewZ` before the kernel).
 - **r3f + RenderPipeline resize**: `pass()` sizes its target from the renderer in `setup`; verify canvas resize keeps colour/depth in sync (spike: resize the window, screenshot). Fallback: call `scenePass.setSize(w, h)` from r3f's `size` state.
 - **Tone mapping double-apply**: if the Phase 2 render already writes sRGB, keep `outputColorTransform = true` and ensure the pass target stays linear `HalfFloatType`.
 - **Cost**: 9 depth samples + 1 colour per pixel; at 4K DPR 2 this may exceed 2 ms. Acceptance is DPR 1; document DPR 2 numbers.
@@ -76,3 +76,7 @@ Params (uniforms): `radiusPx` 1–4, default 1.5; `strength` 0–4, default 1; `
 ## Docs
 
 ARCHITECTURE: "Post-processing" section (RenderPipeline, r3f priority handover, EDL formula, params, measured cost). README: controls table gains EDL row; perf table gains the EDL delta.
+
+## Plan rulings (2026-09-17)
+
+Implementation rulings, deviations and measured numbers for this spec are recorded in `docs/superpowers/plans/2026-09-17-phase-3-edl.md` ("Rulings on the spec-review items" table) and applied above.

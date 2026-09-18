@@ -6,3 +6,5 @@
 .row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
 .row input[type=range] { width: 100%; grid-column: 1 / -1; accent-color: var(--pcv-accent); }
 .row select { grid-column: 1 / -1; background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; padding: 2px 4px; font: inherit; }
+.group { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--pcv-border); }
+.groupTitle { color: var(--pcv-text-2); font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; font-size: 10px; }
