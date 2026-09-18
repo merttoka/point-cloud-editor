@@ -11,10 +11,14 @@ import { useViewerStore, type Store, type ViewerState } from '../state/store'
 import { ChunkSprites } from './ChunkSprites'
 import { Hud } from '../ui/Hud'
 import { PostPass } from './PostPass'
+import { ComputeRunner } from '../compute/ComputeRunner'
+import type { ComputePipeline } from '../compute/pipeline'
 
 export interface ViewerApi {
   fit: () => void
   sendCamera?: (pos: [number, number, number]) => void
+  build?: (radius: number) => Promise<void>
+  readback?: ComputePipeline['readback']
 }
 
 const HOME_FOV = 50
@@ -138,6 +142,7 @@ export function Scene({ buffers, manifest, handle, api, hudEl, dpr }: {
       <CameraRig manifest={manifest} handle={handle} api={api} />
       <Hud el={hudEl} />
       <PostPass />
+      <ComputeRunner buffers={buffers} manifest={manifest} api={api} />
     </Canvas>
   )
 }
