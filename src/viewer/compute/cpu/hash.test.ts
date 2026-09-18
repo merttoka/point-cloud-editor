@@ -14,6 +14,7 @@ describe('cellKey', () => {
     expect(cellKey(0, 0, 0, 1023)).toBe(0)
     expect(cellKey(1, 0, 0, 0xffffffff)).toBe(73856093)
     expect(cellKey(60000, 60000, 60000, 1023)).toBeLessThan(1024)
+    expect(cellKey(-1, 0, 0, 0xffffffff)).toBe(Math.imul(-1, 73856093) >>> 0)
   })
 })
 

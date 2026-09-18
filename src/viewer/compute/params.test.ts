@@ -18,5 +18,12 @@ describe('params', () => {
     expect(Array.from(sub)).toEqual([0, 1, 2, 3, 10, 11, 12, 13])
     expect(benchWords(words, chunks, 10)).toBe(words)   // n >= total: same array, no copy
   })
+  it('benchWords does not pad a short chunk with fabricated points', () => {
+    const words = new Uint32Array(20)
+    for (let i = 0; i < 20; i++) words[i] = i
+    const chunks = [{ offset: 0, count: 1 }, { offset: 1, count: 1 }, { offset: 2, count: 8 }]
+    const sub = benchWords(words, chunks, 6)
+    expect(Array.from(sub)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+  })
   it('constants', () => { expect(K).toBe(16); expect(BENCH_CAP).toBe(2_000_000) })
 })

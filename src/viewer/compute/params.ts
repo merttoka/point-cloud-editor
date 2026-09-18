@@ -24,9 +24,11 @@ export function benchWords(words: Uint32Array, chunks: { offset: number; count: 
   if (n >= total) return words
   const per = Math.floor(n / chunks.length)
   const out = new Uint32Array(per * chunks.length * WORDS_PER_POINT)
-  chunks.forEach((c, i) => {
-    const take = Math.min(per, c.count)
-    out.set(words.subarray(c.offset * WORDS_PER_POINT, (c.offset + take) * WORDS_PER_POINT), i * per * WORDS_PER_POINT)
-  })
-  return out
+  let written = 0
+  for (const c of chunks) {
+    const take = Math.min(per, c.count) * WORDS_PER_POINT
+    out.set(words.subarray(c.offset * WORDS_PER_POINT, c.offset * WORDS_PER_POINT + take), written)
+    written += take
+  }
+  return written === out.length ? out : out.slice(0, written)
 }
