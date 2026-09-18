@@ -96,6 +96,7 @@ export function Panel({ api }: { api: ViewerApi }) {
             <option value="flat">Flat</option>
             <option value="lit" disabled={compute.status !== 'built'}>Normal-lit</option>
             <option value="litAo" disabled={compute.status !== 'built'}>Lit + AO</option>
+            <option value="normals" disabled={compute.status !== 'built'}>Normals (debug)</option>
           </select></label>
       </div>
       <div className={styles.group}>

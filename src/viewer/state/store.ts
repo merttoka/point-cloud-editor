@@ -6,7 +6,7 @@ export type Colormap = 'viridis' | 'turbo' | 'grayscale'
 
 export interface EdlState { enabled: boolean; radiusPx: number; strength: number }
 
-export type Shading = 'flat' | 'lit' | 'litAo'
+export type Shading = 'flat' | 'lit' | 'litAo' | 'normals'
 export interface PassTiming { pass: string; submitMs: number; gpuMs: number | null }
 export interface ComputeState {
   status: 'idle' | 'running' | 'built' | 'error'
