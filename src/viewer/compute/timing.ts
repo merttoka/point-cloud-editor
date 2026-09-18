@@ -9,5 +9,5 @@ export async function timedCompute(renderer: THREE.WebGPURenderer, node: Compute
   await renderer.computeAsync(node)
   const submitMs = performance.now() - t0
   const gpuMs = renderer.hasFeature('timestamp-query') ? await renderer.resolveTimestampsAsync(THREE.TimestampQuery.COMPUTE) : null
-  return { pass, submitMs, gpuMs: typeof gpuMs === 'number' ? gpuMs : null }
+  return { pass, submitMs, gpuMs: gpuMs ?? null }
 }

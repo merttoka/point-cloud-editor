@@ -1,10 +1,9 @@
 import { K } from '../params'
 import { knn, type Grid } from './hash'
 
-// CPU mirror of normals.wgsl.ts. Matrices are number[9] row-major; symmetric input.
+// CPU mirror of wgsl/normals.ts. Matrices are number[9] row-major; symmetric input.
 
 const EIG_EPS = 1e-6
-const SLICE = 100_000
 
 export function jacobiEigen(m: number[]): { values: [number, number, number]; vectors: number[] } {
   const a = m.slice()
@@ -86,10 +85,7 @@ export function normalAt(g: Grid, pos: Float32Array, i: number): [number, number
 }
 
 // Fills out[start, end) so a caller can slice the work (the worker yields between slices).
-export function computeNormals(g: Grid, pos: Float32Array, end: number, out = new Uint32Array(end), start = 0, onSlice?: (done: number) => void): Uint32Array {
-  for (let i = start; i < end; i++) {
-    out[i] = octEncode(normalAt(g, pos, i))
-    if (onSlice && ((i + 1) % SLICE === 0 || i + 1 === end)) onSlice(i + 1)
-  }
+export function computeNormals(g: Grid, pos: Float32Array, end: number, out = new Uint32Array(end), start = 0): Uint32Array {
+  for (let i = start; i < end; i++) out[i] = octEncode(normalAt(g, pos, i))
   return out
 }

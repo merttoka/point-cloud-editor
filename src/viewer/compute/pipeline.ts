@@ -80,6 +80,6 @@ export function createComputePipeline(renderer: THREE.WebGPURenderer, buffers: P
       const [normals, ao, cellStart] = await Promise.all([readAttr(buffers.normals), readAttr(buffers.ao), readAttr(cellStartAttr)])
       return { normals, ao, cellStart }
     },
-    dispose() { for (const n of [cellStart, cellCursor, blockSums, sorted]) n.dispose() },
+    dispose() { for (const n of [cellStart, cellCursor, blockSums, sorted, kZero, kCount, kReduce, kScanSums, kScanCells, kScatter, kNormals, kAo]) n.dispose() },
   }
 }

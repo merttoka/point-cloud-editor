@@ -1,6 +1,6 @@
 import { wgsl } from 'three/tsl'
 
-// Shared WGSL helpers, included by every kernel (`wgslFn(src, [helpers])`). Mirrors compute/cpu/*.
+// Shared WGSL helpers, included by the kernels that decode positions or normals (`wgslFn(src, [helpers])`). Mirrors compute/cpu/*.
 export const helpers = wgsl(/* wgsl */ `
 fn pcvDecodePos(w: vec2<u32>, dqScale: vec3<f32>) -> vec3<f32> {
   return vec3<f32>(f32(w.x & 0xffffu), f32(w.x >> 16u), f32(w.y & 0xffffu)) * dqScale;

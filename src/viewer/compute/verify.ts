@@ -16,7 +16,7 @@ export function compareResults(gpuNormals: Uint32Array, gpuAo: Uint32Array, cpuN
     const g = (gpuAo[i >> 2] >>> ((i & 3) * 8)) & 0xff
     aoErr += Math.abs(g - cpuAo[i]) / 255
   }
-  const sorted = Float32Array.from(angles).sort()
+  const sorted = angles.sort()
   const medianDeg = n === 0 ? 0 : n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
   return { n, medianDeg, maxDeg: n ? sorted[n - 1] : 0, aoMae: n ? aoErr / n : 0, nonFinite, degenerate }
 }

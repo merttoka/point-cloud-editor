@@ -1,4 +1,5 @@
 import { wgslFn } from 'three/tsl'
+import { SCAN_BLOCK } from '../params'
 import { helpers } from './helpers'
 
 // Every kernel returns a u32 and the call is .toVar()-ed (three 0.186 drops void wgslFn calls).
@@ -23,13 +24,13 @@ export const countCells = wgslFn(/* wgsl */ `
   }
 `, [helpers])
 
-// Reduce-then-scan over T cells in blocks of 256, thread-per-block, serial inside the block (no workgroup memory).
+// Reduce-then-scan over T cells in blocks of SCAN_BLOCK, thread-per-block, serial inside the block (no workgroup memory).
 export const reduceBlocks = wgslFn(/* wgsl */ `
   fn reduceBlocks(cellStart: ptr<storage, array<atomic<u32>>, read_write>, blockSums: ptr<storage, array<u32>, read_write>,
                   b: u32, blocks: u32) -> u32 {
     if (b >= blocks) { return 0u; }
     var sum = 0u;
-    for (var j = 0u; j < 256u; j++) { sum = sum + atomicLoad(&cellStart[b * 256u + j]); }
+    for (var j = 0u; j < ${SCAN_BLOCK}u; j++) { sum = sum + atomicLoad(&cellStart[b * ${SCAN_BLOCK}u + j]); }
     blockSums[b] = sum;
     return sum;
   }
@@ -49,8 +50,8 @@ export const scanCells = wgslFn(/* wgsl */ `
                blockSums: ptr<storage, array<u32>, read_write>, b: u32, blocks: u32, tableSize: u32) -> u32 {
     if (b >= blocks) { return 0u; }
     var acc = blockSums[b];
-    for (var j = 0u; j < 256u; j++) {
-      let c = b * 256u + j;
+    for (var j = 0u; j < ${SCAN_BLOCK}u; j++) {
+      let c = b * ${SCAN_BLOCK}u + j;
       let v = atomicLoad(&cellStart[c]);
       atomicStore(&cellStart[c], acc);
       atomicStore(&cellCursor[c], acc);

@@ -74,14 +74,12 @@ describe('normalAt / computeNormals', () => {
     expect(worst).toBeLessThan(1)
     expect(flipped).toBe(0)
   })
-  it('isolated point → +Z, computeNormals reports progress', () => {
+  it('isolated point → +Z', () => {
     const pos = new Float32Array([5, 5, 5, 50, 50, 50, 50.1, 50, 50])
     const g = buildGrid(pos, 3, 1, 1024)
     expect(normalAt(g, pos, 0)).toEqual([0, 0, 1])
-    const seen: number[] = []
-    const out = computeNormals(g, pos, 3, undefined, 0, (d) => seen.push(d))
+    const out = computeNormals(g, pos, 3)
     expect(out.length).toBe(3)
     expect(angleDeg(octDecode(out[0]), [0, 0, 1])).toBeLessThan(0.01)
-    expect(seen[seen.length - 1]).toBe(3)
   })
 })

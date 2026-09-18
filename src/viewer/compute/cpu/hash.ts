@@ -1,6 +1,6 @@
 import { K } from '../params'
 
-// CPU mirror of hash.wgsl.ts: same key, same cell = floor(p / radius) in bounds-relative metres, same
+// CPU mirror of wgsl/hash.ts: same key, same cell = floor(p / radius) in bounds-relative metres, same
 // insertion-sorted kNN. Reference for the GPU readback in Verify and the algorithm the benchmark times.
 
 export interface Grid { cellStart: Uint32Array; sorted: Uint32Array; radius: number; mask: number }

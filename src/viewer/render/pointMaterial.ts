@@ -47,8 +47,9 @@ export function createPointMaterial(
   const intensity = packed.bitAnd(uint(0xff))
   const cls = packed.shiftRight(uint(8)).bitAnd(uint(0xff))
 
-  const fword = buffers.flagsNode.element(gi.shiftRight(uint(2)))
-  const fbyte = fword.shiftRight(gi.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))
+  // Byte `gi` of a u8-packed word buffer (flags, ao): word gi >> 2, shift (gi & 3) * 8.
+  const byteOf = (words: PointBuffers['flagsNode']) => words.element(gi.shiftRight(uint(2))).shiftRight(gi.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))
+  const fbyte = byteOf(buffers.flagsNode)
   const collapsed = fbyte.bitAnd(uint(FLAG_HIDDEN | FLAG_DELETED)).notEqual(uint(0))
 
   // Oct-decoded normal and AO byte (compute outputs), vertex-stage reads like qpos/flags.
@@ -63,8 +64,7 @@ export function createPointMaterial(
   const nView = normalize(transformNormalToView(normalObj))
   const viewDir = normalize(positionView.negate())
   const lambert = max(abs(dot(nView, viewDir)), 0.15)          // headlight; abs = camera-facing flip
-  const aoWord = buffers.aoNode.element(gi.shiftRight(uint(2)))
-  const aoByte = float(aoWord.shiftRight(gi.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))).div(255)
+  const aoByte = float(byteOf(buffers.aoNode)).div(255)
   // Branchless blend: select() compiles to if/else and the builder then emits the first (shared) evaluation of
   // positionView/modelViewMatrix inside one branch, leaving them unassigned on the others (clip space reads them).
   const lit = step(0.5, shading)                                 // 1 for lit / litAo

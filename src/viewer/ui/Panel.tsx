@@ -32,6 +32,7 @@ export function Panel({ api }: { api: ViewerApi }) {
   const canVerify = compute.status === 'built' && total <= BENCH_CAP && bench.status !== 'running' && !!api.readback && !!api.cpuBench
   const gpuSum = (passes: string[]) => {
     const rows = compute.timings.filter((t) => passes.includes(t.pass))
+    if (rows.length === 0) return '—'
     return rows.some((t) => t.gpuMs === null) ? 'n/a' : rows.reduce((a, t) => a + (t.gpuMs ?? 0), 0).toFixed(2)
   }
   const runBench = () => { void api.cpuBench?.(radius) }
@@ -98,20 +99,17 @@ export function Panel({ api }: { api: ViewerApi }) {
           </select></label>
       </div>
       <div className={styles.group}>
-        <div className={styles.groupTitle}>Benchmark (CPU, {benchN.toLocaleString()} pts)</div>
+        <div className={styles.groupTitle}>Benchmark (CPU, {(bench.n || benchN).toLocaleString()} pts)</div>
         {bench.status === 'running'
           ? <button className={styles.button} onClick={() => api.cancelBench?.()}>Cancel ({Math.round(bench.progress * 100)}%)</button>
           : <button className={styles.button} disabled={status !== 'ready' || !api.cpuBench} onClick={runBench}>Run CPU</button>}
-        {bench.cpuMs && compute.timings.length > 0 && (
+        {bench.cpuMs && (
           <div className={styles.table}>
             <span>pass</span><span>GPU ms{bench.n !== total && ' (all)'}</span><span>CPU ms{bench.n !== total && ' (cap)'}</span>
             <span>hash</span><span>{gpuSum(['count', 'scan', 'scatter'])}</span><span>{bench.cpuMs.hash.toFixed(0)}</span>
             <span>normals</span><span>{gpuSum(['normals'])}</span><span>{bench.cpuMs.normals.toFixed(0)}</span>
             <span>ao</span><span>{gpuSum(['ao'])}</span><span>{bench.cpuMs.ao.toFixed(0)}</span>
           </div>
-        )}
-        {bench.cpuMs && compute.timings.length === 0 && (
-          <div className={styles.muted}>CPU hash {bench.cpuMs.hash.toFixed(0)} · normals {bench.cpuMs.normals.toFixed(0)} · ao {bench.cpuMs.ao.toFixed(0)} ms</div>
         )}
         <button className={styles.button} disabled={!canVerify} onClick={() => void runVerify()}>Verify GPU vs CPU</button>
         {total > BENCH_CAP && <div className={styles.muted}>Verify needs the same points on both sides — demo set only.</div>}

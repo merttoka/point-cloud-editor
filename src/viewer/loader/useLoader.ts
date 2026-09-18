@@ -85,8 +85,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
     api.sendCamera = (pos) => { const m: LoaderIn = { type: 'camera', pos }; worker.postMessage(m) }
     api.cpuBench = (radius) => {
       if (benchResolve) return Promise.resolve(null)
-      benchN = Math.min(manifest.pointCount, BENCH_CAP)
-      const words = benchWords(buffers.qpos.array as Uint32Array, manifest.chunks, benchN)
+      const words = benchWords(buffers.qpos.array as Uint32Array, manifest.chunks, Math.min(manifest.pointCount, BENCH_CAP))
       benchN = words.length / WORDS_PER_POINT
       store.set({ bench: { status: 'running', progress: 0, n: benchN, cpuMs: null, verify: null } })
       // Never transfer the attribute's own array: benchWords returns it as-is when n covers every point.
