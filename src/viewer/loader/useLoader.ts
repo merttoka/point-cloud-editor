@@ -6,6 +6,10 @@ import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
 import { useViewerStore } from '../state/store'
 import { homePose, type ViewerApi } from '../render/Scene'
+import { BENCH_CAP, benchWords, tableSizeFor } from '../compute/params'
+import { dequantScale, WORDS_PER_POINT } from '../format/quant'
+
+type BenchResult = { normals: Uint32Array; ao: Uint8Array; n: number } | null
 
 export interface Loaded {
   manifest: Manifest
@@ -44,9 +48,19 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       return { index, offset: c.offset, count: c.count, centre: [cc[0] - centroid[0], cc[1] - centroid[1], cc[2] - centroid[2]] }
     })
     let points = 0, n = 0
+    let benchResolve: ((r: BenchResult) => void) | null = null
+    let benchN = 0
     worker.onmessage = (e: MessageEvent<LoaderOut>) => {
       const msg = e.data
-      if (msg.type === 'chunk') {
+      if (msg.type === 'benchProgress') {
+        store.set({ bench: { ...store.get().bench, progress: msg.frac } })
+      } else if (msg.type === 'benchDone') {
+        store.set({ bench: { ...store.get().bench, status: 'done', progress: 1, cpuMs: msg.ms } })
+        benchResolve?.({ normals: msg.normals, ao: msg.ao, n: benchN }); benchResolve = null
+      } else if (msg.type === 'benchCancelled') {
+        store.set({ bench: { ...store.get().bench, status: 'cancelled' } })
+        benchResolve?.(null); benchResolve = null
+      } else if (msg.type === 'chunk') {
         const t0 = performance.now()
         buffers.uploadRange(manifest.chunks[msg.index].offset, msg.words)
         uploadLog.current.push(performance.now() - t0)
@@ -69,12 +83,28 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
     const start: LoaderIn = { type: 'start', binUrl, chunks, pos: homePose(manifest).pos }
     worker.postMessage(start)
     api.sendCamera = (pos) => { const m: LoaderIn = { type: 'camera', pos }; worker.postMessage(m) }
+    api.cpuBench = (radius) => {
+      if (benchResolve) return Promise.resolve(null)
+      benchN = Math.min(manifest.pointCount, BENCH_CAP)
+      const words = benchWords(buffers.qpos.array as Uint32Array, manifest.chunks, benchN)
+      benchN = words.length / WORDS_PER_POINT
+      store.set({ bench: { status: 'running', progress: 0, n: benchN, cpuMs: null, verify: null } })
+      // Never transfer the attribute's own array: benchWords returns it as-is when n covers every point.
+      const m: LoaderIn = { type: 'cpuBench', words: words === buffers.qpos.array ? words.slice() : words, n: benchN, dqScale: dequantScale(manifest.bounds), radius, tableSize: tableSizeFor(benchN) }
+      worker.postMessage(m, [m.words.buffer])
+      return new Promise((resolve) => { benchResolve = resolve })
+    }
+    api.cancelBench = () => { const m: LoaderIn = { type: 'cancelBench' }; worker.postMessage(m) }
+    if (import.meta.env.DEV) (window as unknown as { __pcvBench?: unknown }).__pcvBench = { state: () => store.get().bench, run: api.cpuBench }
     return () => {
       const m: LoaderIn = { type: 'dispose' }
       worker.postMessage(m)
       worker.onmessage = null
       worker.terminate()
       api.sendCamera = undefined
+      api.cpuBench = undefined; api.cancelBench = undefined
+      benchResolve?.(null); benchResolve = null
+      if (import.meta.env.DEV) delete (window as unknown as { __pcvBench?: unknown }).__pcvBench
     }
   }, [loaded, store, api])
 

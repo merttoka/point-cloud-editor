@@ -1,7 +1,8 @@
 import { Fragment } from 'react'
 import { useStore, useViewerStore, type ColorMode, type Colormap, type EdlState, type Shading } from '../state/store'
 import type { ViewerApi } from '../render/Scene'
-import { spacingOf } from '../compute/params'
+import { BENCH_CAP, spacingOf } from '../compute/params'
+import { compareResults } from '../compute/verify'
 import styles from './Panel.module.css'
 
 export function Panel({ api }: { api: ViewerApi }) {
@@ -18,6 +19,7 @@ export function Panel({ api }: { api: ViewerApi }) {
   const edl = useStore((s) => s.edl)
   const compute = useStore((s) => s.compute)
   const shading = useStore((s) => s.shading)
+  const bench = useStore((s) => s.bench)
 
   const total = manifest?.pointCount ?? 0
   const spacing = manifest ? spacingOf(manifest.bounds, manifest.pointCount) : 0
@@ -26,6 +28,20 @@ export function Panel({ api }: { api: ViewerApi }) {
   const frac = total ? loaded.points / total : 0
   const budgetPct = Math.round(budget * 100)
   const setEdl = (patch: Partial<EdlState>) => store.set({ edl: { ...store.get().edl, ...patch } })
+  const benchN = Math.min(total, BENCH_CAP)
+  const canVerify = compute.status === 'built' && total <= BENCH_CAP && bench.status !== 'running' && !!api.readback && !!api.cpuBench
+  const gpuSum = (passes: string[]) => {
+    const rows = compute.timings.filter((t) => passes.includes(t.pass))
+    return rows.some((t) => t.gpuMs === null) ? 'n/a' : rows.reduce((a, t) => a + (t.gpuMs ?? 0), 0).toFixed(2)
+  }
+  const runBench = () => { void api.cpuBench?.(radius) }
+  const runVerify = async () => {
+    if (!api.cpuBench || !api.readback) return
+    const [cpu, gpu] = await Promise.all([api.cpuBench(compute.builtRadius ?? radius), api.readback()])
+    if (!cpu) return
+    const verify = compareResults(gpu.normals, gpu.ao, cpu.normals, cpu.ao, cpu.n)
+    store.set({ bench: { ...store.get().bench, verify } })
+  }
   return (
     <div className={styles.panel}>
       <div className={styles.name}>{manifest?.name ?? 'loading…'}</div>
@@ -80,6 +96,26 @@ export function Panel({ api }: { api: ViewerApi }) {
             <option value="lit" disabled={compute.status !== 'built'}>Normal-lit</option>
             <option value="litAo" disabled={compute.status !== 'built'}>Lit + AO</option>
           </select></label>
+      </div>
+      <div className={styles.group}>
+        <div className={styles.groupTitle}>Benchmark (CPU, {benchN.toLocaleString()} pts)</div>
+        {bench.status === 'running'
+          ? <button className={styles.button} onClick={() => api.cancelBench?.()}>Cancel ({Math.round(bench.progress * 100)}%)</button>
+          : <button className={styles.button} disabled={status !== 'ready' || !api.cpuBench} onClick={runBench}>Run CPU</button>}
+        {bench.cpuMs && compute.timings.length > 0 && (
+          <div className={styles.table}>
+            <span>pass</span><span>GPU ms{bench.n !== total && ' (all)'}</span><span>CPU ms{bench.n !== total && ' (cap)'}</span>
+            <span>hash</span><span>{gpuSum(['count', 'scan', 'scatter'])}</span><span>{bench.cpuMs.hash.toFixed(0)}</span>
+            <span>normals</span><span>{gpuSum(['normals'])}</span><span>{bench.cpuMs.normals.toFixed(0)}</span>
+            <span>ao</span><span>{gpuSum(['ao'])}</span><span>{bench.cpuMs.ao.toFixed(0)}</span>
+          </div>
+        )}
+        {bench.cpuMs && compute.timings.length === 0 && (
+          <div className={styles.muted}>CPU hash {bench.cpuMs.hash.toFixed(0)} · normals {bench.cpuMs.normals.toFixed(0)} · ao {bench.cpuMs.ao.toFixed(0)} ms</div>
+        )}
+        <button className={styles.button} disabled={!canVerify} onClick={() => void runVerify()}>Verify GPU vs CPU</button>
+        {total > BENCH_CAP && <div className={styles.muted}>Verify needs the same points on both sides — demo set only.</div>}
+        {bench.verify && <div className={styles.muted}>n {bench.verify.n.toLocaleString()} · median {bench.verify.medianDeg.toFixed(3)}° · max {bench.verify.maxDeg.toFixed(2)}° · AO MAE {bench.verify.aoMae.toFixed(4)} · non-finite {bench.verify.nonFinite} · +Z {bench.verify.degenerate.toLocaleString()}</div>}
       </div>
       <label className={styles.row}><span>HUD</span>
         <input type="checkbox" checked={showHud} onChange={(e) => store.set({ showHud: e.target.checked })} /></label>

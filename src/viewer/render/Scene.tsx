@@ -19,6 +19,8 @@ export interface ViewerApi {
   sendCamera?: (pos: [number, number, number]) => void
   build?: (radius: number) => Promise<void>
   readback?: ComputePipeline['readback']
+  cpuBench?: (radius: number) => Promise<{ normals: Uint32Array; ao: Uint8Array; n: number } | null>   // null = cancelled
+  cancelBench?: () => void
 }
 
 const HOME_FOV = 50

@@ -33,7 +33,7 @@ export function ComputeRunner({ buffers, manifest, api }: { buffers: PointBuffer
       const cpuCellStart = (radius: number) =>
         buildGrid(decodePositions(buffers.qpos.array as Uint32Array, buffers.count, dequantScale(manifest.bounds)), buffers.count, radius, p.tableSize).cellStart
       ;(window as unknown as { __pcvCompute?: unknown }).__pcvCompute = {
-        build: api.build, readback: api.readback, tableSize: p.tableSize, timings: () => store.get().compute.timings, cpuCellStart,
+        build: api.build, readback: api.readback, tableSize: p.tableSize, timings: () => store.get().compute.timings, state: () => store.get().compute, cpuCellStart,
       }
     }
     return () => {
