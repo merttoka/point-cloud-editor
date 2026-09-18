@@ -10,6 +10,7 @@ import type { PointMaterialHandle } from './pointMaterial'
 import { useViewerStore, type Store, type ViewerState } from '../state/store'
 import { ChunkSprites } from './ChunkSprites'
 import { Hud } from '../ui/Hud'
+import { PostPass } from './PostPass'
 
 export interface ViewerApi {
   fit: () => void
@@ -106,8 +107,8 @@ function DatasetLimitCheck({ buffers }: { buffers: PointBuffers }) {
   return null
 }
 
-export function Scene({ buffers, manifest, handle, api, hudEl }: {
-  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>
+export function Scene({ buffers, manifest, handle, api, hudEl, dpr }: {
+  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>; dpr?: number
 }) {
   const store = useViewerStore()
   const camera = useMemo(() => {
@@ -121,6 +122,7 @@ export function Scene({ buffers, manifest, handle, api, hudEl }: {
     <Canvas
       camera={camera}
       scene={scene}
+      dpr={dpr}
       gl={(props) => {
         const canvas = props.canvas as HTMLCanvasElement
         const cached = rendererByCanvas.get(canvas)
@@ -135,6 +137,7 @@ export function Scene({ buffers, manifest, handle, api, hudEl }: {
       <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} />
       <CameraRig manifest={manifest} handle={handle} api={api} />
       <Hud el={hudEl} />
+      <PostPass />
     </Canvas>
   )
 }
