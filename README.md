@@ -3,20 +3,24 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 4 done: GPU normals + AO (spatial hash, PCA, tangent-plane AO), shading modes, CPU benchmark + verify.
+Phase 4b done: GPU normals via radius PCA (single-pass covariance, no K cap) + AO (spatial hash, tangent-plane AO), wrap + fixed-sun shading, CPU benchmark + verify.
 
 2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading (wrap + fixed-sun lambert, ao as `sqrt` shade not mask) adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
 
-Compute build (radius 3 × spacing: 2.12 m on the demo, 0.67 m on the full set; GPU = timestamp query, CPU = same algorithms in the loader worker):
+Compute build (radius 6 × spacing, the 4b default: 4.24 m on the demo, 1.34 m on the full set; GPU = timestamp query per pass):
 
-| pass | GPU ms @2M | GPU ms @20M | CPU ms @2M (worker) |
-|---|---|---|---|
-| hash (count+scan+scatter) | 0.52 | 9.05 | 17 |
-| normals (k=16) | 55.64 | 818.15 | 5,751 |
-| ao | 31.78 | 704.25 | 4,662 |
-| **total** | **87.94** (87–93 over 3 runs) | **1,531.45** | **10,430** |
+| pass | GPU ms @2M | GPU ms @20M |
+|---|---|---|
+| hash (count+scan+scatter) | 0.52 | 9.05 |
+| normals (radius PCA) | 34–36 | 630 |
+| ao | 46 | 685 |
+| **total** | **80–83** | **1,321** |
 
-Build wall time (six `computeAsync` + timestamp resolves): 129 ms at 2M, 2.49 s at 20M. Verify @2M: median 0.000°, max 80.77° (213 of 2M points > 1°, near-isotropic neighbourhoods), AO MAE 0.0001, non-finite 0. On the full set the CPU bench runs a 1,999,872-point per-chunk prefix subsample (hash 17 / normals 7,167 / ao 6,906 ms) and Verify is disabled.
+(hash carried from the pre-4b measurement: cost is set by `T`/`N`, not radius or the normals estimator, so it's unaffected by the 6× default.)
+
+Default radius is 6 × spacing, up from 3×: at 20M density (~0.224 m spacing) the `K = 16` cap this replaced already sat within ~0.5 m of any point, so widening the slider multiplier alone never grew the PCA support — dropping the cap and doubling the default fixes it (class-6 facade `|n.z|` wall-bin mass 0.021 → 0.078 at 20M, 0.043 → 0.109 at 2M; see `docs/ARCHITECTURE.md` § Normal quality).
+
+Build wall time at the 6× default: 121–130 ms at 2M, 2.54 s at 20M (six `computeAsync` + timestamp resolves). Verify @2M (radius PCA): median 0.000°, max 81.23°, AO MAE 0.0001, non-finite 0. Verify stays 2M-only by design (needs the same point set on both sides); the CPU worker benchmark hasn't been re-timed under radius PCA at the 6× default (historical `K = 16`/3× figures are noted in ARCHITECTURE's Deferred list).
 
 ## Setup
 ```bash
@@ -70,7 +74,7 @@ npm run dev         # Chrome with WebGPU → http://localhost:5173
 | drag / wheel | orbit / zoom (OrbitControls, +Z up) |
 | `F` | refit camera to dataset |
 | `H` | toggle HUD |
-| panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 1–6 × spacing), shading (flat / lit / lit + AO), CPU benchmark, verify |
+| panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 2–10 × spacing, default 6×), shading (flat / lit / lit + AO / normals debug), CPU benchmark, verify |
 Keys work only while the viewer has focus (click it first).
 
 ## Phase 0 spike results
