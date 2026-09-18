@@ -5,10 +5,15 @@ export type LoaderIn =
   | { type: 'start'; binUrl: string; chunks: ChunkRef[]; pos?: [number, number, number] }
   | { type: 'camera'; pos: [number, number, number] }
   | { type: 'dispose' }
+  | { type: 'cpuBench'; words: Uint32Array; n: number; dqScale: [number, number, number]; radius: number; tableSize: number }
+  | { type: 'cancelBench' }
 export type LoaderOut =
   | { type: 'chunk'; index: number; words: Uint32Array }
   | { type: 'done' }
   | { type: 'error'; message: string }
+  | { type: 'benchProgress'; frac: number }
+  | { type: 'benchDone'; normals: Uint32Array; ao: Uint8Array; ms: { hash: number; normals: number; ao: number } }
+  | { type: 'benchCancelled' }
 
 export interface LoaderIO {
   fetch: typeof fetch

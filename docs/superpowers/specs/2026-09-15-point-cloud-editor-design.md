@@ -120,7 +120,7 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 1. **preprocess** — tools, `--stats`, packed bin + offsets, demo dataset, tests. Verify Range + CORS on release asset. **Done.**
 2. **viewer** — streaming, orbit, budget slider, point size, colormaps, flags buffer. **Done.**
 3. **edl** — post pass, params, toggle. **Done.**
-4. **compute** — hash, normals, AO, timing panel, CPU benchmark + verify.
+4. **compute** — hash, normals, AO, timing panel, CPU benchmark + verify. **Done.**
 5. **editing** — click/lasso select, ops, split, undo, export zip.
 6. **perf-docs** — HUD numbers, README table, screenshots/webm, ARCHITECTURE, portfolio blurb.
 

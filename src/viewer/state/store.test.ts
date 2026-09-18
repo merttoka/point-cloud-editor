@@ -38,4 +38,10 @@ describe('createStore', () => {
     expect(s.get().edl).toEqual({ enabled: true, radiusPx: 3, strength: 1 })
     expect(initialState.edl.radiusPx).toBe(1.5)   // initial object untouched
   })
+  it('phase 4 defaults: flat shading, compute idle at 3× spacing, bench idle', () => {
+    const s = createStore(initialState)
+    expect(s.get().shading).toBe('flat')
+    expect(s.get().compute).toEqual({ status: 'idle', radiusMul: 3, builtRadius: null, timings: [], elapsedMs: null })
+    expect(s.get().bench).toEqual({ status: 'idle', progress: 0, n: 0, cpuMs: null, verify: null })
+  })
 })

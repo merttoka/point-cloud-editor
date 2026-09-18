@@ -41,7 +41,9 @@ export function ChunkSprites({ buffers, manifest, handle }: { buffers: PointBuff
   const pointSize = useStore((s) => s.pointSize)
   const colorMode = useStore((s) => s.colorMode)
   const colormap = useStore((s) => s.colormap)
+  const shading = useStore((s) => s.shading)
   useEffect(() => { handle.setPointSize(pointSize) }, [handle, pointSize])
+  useEffect(() => { handle.setShading(shading) }, [handle, shading])
   useEffect(() => {
     handle.setMode(colorMode)
     handle.setLut(colorMode === 'class' ? 'class' : colormap)
