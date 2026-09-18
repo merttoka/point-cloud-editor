@@ -167,9 +167,9 @@ Measured after Task 1 (radius PCA): class-6 wall bin [0, 0.1) — 20M: 0.021 at 
 
 ### Task 4: Docs, spec, merge
 
-- [ ] README: shading description + new timing row (2M / 20M `smooth`), memory line (+80 MB). ARCHITECTURE: Compute section — normals estimator (radius PCA, why K was wrong at 20M), smoothing pass, lighting formula, class histogram before/after numbers, `normals` debug mode, memory table. Master spec: add **A11** (this amendment); phase-4 spec: "Amended by A11 (2026-09-18)" note under Passes 4 and UI. Deferred: `normalsTmp` could be freed after the build (same no-API limitation).
+- [ ] README: shading description, compute rows at the 6× default (2M / 20M), default-radius line. ARCHITECTURE: Compute section — radius PCA estimator (why K was wrong at 20M), the 4b evidence (class-6 histograms), lighting formula, `normals` debug mode + `classStats()`, Measured rows at 6×. Master spec: **A11**; phase-4 spec: "Amended by A11" notes. Deferred: CPU bench numbers not re-measured under radius PCA.
 - [ ] Gates (`tsc`, `vitest`, `build`, `pytest`), whole-branch review, `git merge --no-ff phase-4b-normals`, push, delete branch, `/deslop` over the changed surface.
 
 ## Unresolved questions
-- Smoothing radius = same slider radius (simplest) — ok, or a separate multiplier?
-- Keep `normals` debug shading in the public panel, or DEV-only?
+- Smoothing radius = same slider radius (simplest) — ok, or a separate multiplier? → moot (no smoothing pass).
+- Keep `normals` debug shading in the public panel, or DEV-only? → kept public (acceptance instrument).
