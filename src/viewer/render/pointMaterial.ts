@@ -63,14 +63,18 @@ export function createPointMaterial(
   const normalObj = normalize(vec3(ox, oy, nz))
   const nView = normalize(transformNormalToView(normalObj))
   const viewDir = normalize(positionView.negate())
-  const lambert = max(abs(dot(nView, viewDir)), 0.15)          // headlight; abs = camera-facing flip
+  const SUN = normalize(vec3(-0.4, -0.3, 0.85))                  // world, +Z up; fixed key light from above-left
+  const wrap = float(0.30).add(abs(dot(nView, viewDir)).mul(0.45))
+  const sun = max(dot(normalObj, SUN), 0).mul(0.25)
+  const lambert = wrap.add(sun)                                   // 0.30 … 1.0
   const aoByte = float(byteOf(buffers.aoNode)).div(255)
   // Branchless blend: select() compiles to if/else and the builder then emits the first (shared) evaluation of
   // positionView/modelViewMatrix inside one branch, leaving them unassigned on the others (clip space reads them).
   const lit = step(0.5, shading)                                 // 1 for lit / litAo / normals
   const useAo = step(1.5, shading)                               // 1 for litAo (and normals, harmless: masked below)
   const debugNormals = step(2.5, shading)                        // 1 for normals
-  const light = mix(float(1), lambert.mul(mix(float(1), aoByte, useAo)), lit)
+  const aoTerm = mix(float(1), aoByte.sqrt(), useAo)              // sqrt: occlusion shades, never masks
+  const light = mix(float(1), lambert.mul(aoTerm), lit)
 
   const material = new THREE.PointsNodeMaterial()
   material.sizeAttenuation = false

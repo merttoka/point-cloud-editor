@@ -5,7 +5,7 @@ Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, 
 ## Status
 Phase 4 done: GPU normals + AO (spatial hash, PCA, tangent-plane AO), shading modes, CPU benchmark + verify.
 
-2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
+2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading (wrap + fixed-sun lambert, ao as `sqrt` shade not mask) adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
 
 Compute build (radius 3 × spacing: 2.12 m on the demo, 0.67 m on the full set; GPU = timestamp query, CPU = same algorithms in the loader worker):
 
