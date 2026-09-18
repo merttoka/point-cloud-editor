@@ -53,14 +53,11 @@ export function octEncode(n: [number, number, number]): number {
     px = qx; py = qy
   }
   const ux = Math.round((px * 0.5 + 0.5) * 65535), uy = Math.round((py * 0.5 + 0.5) * 65535)
-  return ux | (uy << 16)
+  return (ux | (uy << 16)) >>> 0
 }
 
-// Decode divides by 65536 (not the encode-side 65535) so the round-half-up quantization centre
-// (32768, 32768) — the code +Z always encodes to — inverts to exactly (0, 0); the sub-ULP scale
-// difference elsewhere is far inside the round-trip tolerance.
 export function octDecode(w: number): [number, number, number] {
-  const fx = ((w & 0xffff) / 65536) * 2 - 1, fy = ((w >>> 16) / 65536) * 2 - 1
+  const fx = ((w & 0xffff) / 65535) * 2 - 1, fy = ((w >>> 16) / 65535) * 2 - 1
   let x = fx, y = fy
   const z = 1 - Math.abs(fx) - Math.abs(fy)
   if (z < 0) { x = (1 - Math.abs(fy)) * (fx >= 0 ? 1 : -1); y = (1 - Math.abs(fx)) * (fy >= 0 ? 1 : -1) }

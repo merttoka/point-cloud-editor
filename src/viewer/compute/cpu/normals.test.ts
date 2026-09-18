@@ -47,7 +47,7 @@ describe('oct encode/decode', () => {
     expect(worst).toBeLessThan(0.5)
   })
   it('+Z encodes to the centre of the square', () => {
-    expect(octEncode([0, 0, 1])).toBe(32768 | (32768 << 16))
+    expect(octEncode([0, 0, 1])).toBe((32768 | (32768 << 16)) >>> 0)
   })
 })
 
@@ -81,7 +81,7 @@ describe('normalAt / computeNormals', () => {
     const seen: number[] = []
     const out = computeNormals(g, pos, 3, undefined, 0, (d) => seen.push(d))
     expect(out.length).toBe(3)
-    expect(octDecode(out[0])).toEqual([0, 0, 1])
+    expect(angleDeg(octDecode(out[0]), [0, 0, 1])).toBeLessThan(0.01)
     expect(seen[seen.length - 1]).toBe(3)
   })
 })
