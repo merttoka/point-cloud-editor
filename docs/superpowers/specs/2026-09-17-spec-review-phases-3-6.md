@@ -52,6 +52,8 @@ The four specs were written before phases 1–2 shipped. Shipped shapes they dep
 
 ## Phase 5 — Editing
 
+**Applied 2026-09-19 (plan)** — see `docs/superpowers/plans/2026-09-19-phase-5-editing.md` "Rulings on the spec-review items" for items 1–10 below plus the further drift found on re-check (items 11–20 there).
+
 1. **Flags mirror**: make the CPU mirror a `Uint8Array` **view** over `flags.array.buffer` (little-endian, byte i = point i) instead of a second 20 MB array; then "upload `[minIdx, maxIdx]`" is a word-aligned `flags.addUpdateRange(minIdx >> 2, ((maxIdx >> 2) - (minIdx >> 2)) + 1)` + `needsUpdate`. Add `PointBuffers.uploadFlagsRange(minIdx, maxIdx)` next to `uploadRange`. Undo `prevFlags` slices copy from the same view.
 2. **Keyboard conflict**: `H` is "toggle HUD" since Phase 2 (README Controls). Phase 5 assigns `H` = hide. Amend: hide → `X` (or move HUD toggle to `Shift+H`). Existing keys: `F` fit, `H` HUD.
 3. **Pick radius** `max(3 px, pointSize)`: rendered size is `clamp(pointSize × refDist / −z, 1, 8)` px, so on-screen dots are usually smaller than `pointSize` at the home pose. Either use the same attenuated size in the kernel (needs `refDist`, already a uniform) or keep the CSS-px rule and say picks are generous. Recommend the attenuated size, capped ≥ 3 px.
@@ -64,6 +66,19 @@ The four specs were written before phases 1–2 shipped. Shipped shapes they dep
 10. **Shortcut scoping**: shipped root uses `onKeyDown` with `tabIndex=0`, which already implies focus inside the root; the extra `root.contains(document.activeElement)` check is redundant unless handlers move to `window` (they must not).
 
 ## Phase 6 — Perf & docs
+
+**Re-checked 2026-09-19** against main `eb9a4a2` (phases 3, 4, 4b shipped). Items 1–8 below stand; additions:
+
+9. **Dev globals to fold into `window.__pcv`**: `__pcvUploadMs` (Phase 2), `__pcvCompute { build, readback, tableSize, timings, state, cpuCellStart, classStats }` and `__pcvBench { state, run }` (Phase 4), `__pcvEdit` (Phase 5). All are `import.meta.env.DEV`-gated today; Phase 6 moves them behind `?bench=1` and deletes the ad-hoc names. `classStats`/`cpuCellStart` are measurement hooks and may stay on the handle.
+10. **`compute()` shape**: shipped rows are `count / scan / scatter / normals / ao` (`PassTiming[]`, `gpuMs | null`) plus `elapsedMs` wall; the handle should return `{ countMs, scanMs, scatterMs, normalsMs, aoMs, totalMs, wallMs }` and the README must cite `gpu`, not wall (ARCHITECTURE § Timing semantics).
+11. **`cpuBench(n)`**: the shipped bench caps at `BENCH_CAP` and on the full set runs a per-chunk prefix subsample (1,999,872 pts) — `n` is not a free parameter. Handle signature becomes `cpuBench(): Promise<{ hashMs, normalsMs, aoMs, n }>`; `verify()` is demo-only (same point set rule).
+12. **`frame()`**: the HUD EMA lives in a ref inside `ui/Hud.tsx`; expose it via `api.frame = () => ({ ms, fps, draws })` written by `Hud` so the handle needs no DOM read (also resolves the `id="hud"` Deferred item — switch to `data-pcv-hud`).
+13. **`orbit()`** needs the `OrbitControls` instance: `CameraRig` holds it in a ref — add `api.orbit(steps, ms)` there.
+14. **`memory()`**: computed bytes = `qpos` + `flags` + `normals` + `ao` + hash (`cellStart`, `cellCursor`, `blockSums`, `sorted`) + Phase 5's `pick`/`polygon`/`chunkTable` (KB) — 394 MB at 20M after a build (ARCHITECTURE § Memory). Two columns as before (computed vs GPU-process RSS proxy).
+15. **Perf rows already measured**: EDL on/off (Phase 3), normals/AO GPU vs CPU and verify (Phase 4/4b), lasso/pick (Phase 5) — Phase 6 re-runs them in one dated session from the runbook rather than copying README numbers forward.
+16. **EMBEDDING**: `dpr?: number` prop exists (Phase 3); token list in the spec matches `theme/tokens.module.css`; `fflate` pin = `0.8.3` (Phase 5); `.npmrc` `legacy-peer-deps` note stands.
+17. **Media**: no video tool in Playwright MCP (item 7) — decide whether `ffmpeg` is on the machine before planning the webm; else PNG hero + GIF.
+18. **Hosting** (item 2) is still undecided and blocks `EMBEDDING.md`'s data-URL section — must be settled before the Phase 6 plan.
 
 1. **Attribution**: README item 9 says "USGS 3DEP attribution" — wrong since A10. Must be "Contains information licensed under the Open Government Licence – Vancouver" (already in README Data). Amend.
 2. **Hosting decision is a prerequisite**: `EMBEDDING.md` "data URL configuration (release URL vs Lab-hosted)" — the release URL cannot be used from a browser (no CORS). Options recorded in Deferred: website static (`.htaccess` CORS; demo via git-ftp, full via manual FTP — 160 MB exceeds the git-repo limit) or a bucket. Decide before writing the doc.
