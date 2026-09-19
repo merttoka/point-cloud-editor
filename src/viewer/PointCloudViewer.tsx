@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { StoreContext, createStore, initialState, useStore, useViewerStore } from './state/store'
 import { useLoader } from './loader/useLoader'
 import { Scene, type ViewerApi } from './render/Scene'
@@ -38,13 +38,15 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'f' || e.key === 'F') { api.fit(); e.preventDefault() }
     if (e.key === 'h' || e.key === 'H') { store.set({ showHud: !store.get().showHud }); e.preventDefault() }
-    if (e.key === '\\') { if (!e.repeat) setShowKeys(true); e.preventDefault() }
+    if (e.code === 'Backslash') { if (!e.repeat) setShowKeys(true); e.preventDefault() }   // code, not key: stable across AltGr layouts on keyup
   }
-  const onKeyUp = (e: KeyboardEvent<HTMLDivElement>) => { if (e.key === '\\') setShowKeys(false) }
+  const onKeyUp = (e: KeyboardEvent<HTMLDivElement>) => { if (e.code === 'Backslash') setShowKeys(false) }
+  // Root onBlur is focusout: skip focus moves between descendants (Panel controls) so a held `\` stays shown.
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowKeys(false) }
 
   const message = !hasGpu ? 'WebGPU not available in this browser.' : status === 'error' ? error : null
   return (
-    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={() => setShowKeys(false)}>
+    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur}>
       <div id="hud" ref={hudEl} className={styles.hud} />
       <Panel api={api} />
       {showKeys && <KeysOverlay />}
