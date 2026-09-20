@@ -121,9 +121,14 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       if (edit.busy) return
       exportT0 = performance.now()
       store.set({ edit: { ...edit, busy: true, message: undefined } })
-      // Copies: the attribute's own array and the flags mirror must stay behind; the worker takes ownership of the slices.
-      const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), manifest }
-      worker.postMessage(m, [m.words.buffer, m.flags.buffer])
+      try {
+        // Copies: the attribute's own array and the flags mirror must stay behind; the worker takes ownership of the slices.
+        const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), manifest }
+        worker.postMessage(m, [m.words.buffer, m.flags.buffer])
+      } catch (err) {
+        // A synchronous postMessage failure would otherwise leave the toolbar locked behind `busy`.
+        store.set({ edit: { ...store.get().edit, busy: false, message: `export failed: ${String(err)}` } })
+      }
     }
     if (import.meta.env.DEV) {
       const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }
@@ -160,6 +165,8 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       api.sendCamera = undefined
       api.cpuBench = undefined; api.cancelBench = undefined; api.exportZip = undefined
       benchResolve?.(null); benchResolve = null
+      // Terminating mid-export drops its exportDone; release the gate so a new dataset's toolbar isn't locked.
+      if (store.get().edit.busy) store.set({ edit: { ...store.get().edit, busy: false } })
       if (import.meta.env.DEV) {
         const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }
         delete w.__pcvBench; delete w.__pcvEdit

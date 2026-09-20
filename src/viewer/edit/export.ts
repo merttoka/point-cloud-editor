@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from 'fflate'
 import type { Manifest } from '../loader/manifest'
-import { dequantize, unpackWords, WORDS_PER_POINT } from '../format/quant'
+import { BYTES_PER_POINT, dequantize, unpackWords, WORDS_PER_POINT } from '../format/quant'
 import { FLAG_DELETED } from './flags'
 
 type V3 = [number, number, number]
@@ -29,7 +29,7 @@ export function exportManifest(src: Manifest, count: number, qmin: V3, qmax: V3)
   const dq = (q: V3): V3 => [0, 1, 2].map((a) => dequantize(q[a], src.bounds.min[a], src.bounds.max[a])) as V3
   return {
     version: 1, name: `${src.name} (export)`, source: `${src.source ?? ''}#export`, license: src.license, crs: src.crs, units: 'm',
-    bounds: src.bounds, pointCount: count, bytesPerPoint: 8, file: 'points.bin', classMap: src.classMap,
+    bounds: src.bounds, pointCount: count, bytesPerPoint: BYTES_PER_POINT, file: 'points.bin', classMap: src.classMap,
     chunks: [{ offset: 0, count, bounds: { min: dq(qmin), max: dq(qmax) } }],
   }
 }
