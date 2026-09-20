@@ -46,7 +46,11 @@ export function EditRunner({ buffers, manifest, editor, api }: { buffers: PointB
         const r = await p.lasso(data, count, mode, view())
         editor.endGpuEdit()
         patch({ lasso: { gpuMs: r.gpuMs, readbackMs: r.readbackMs, selected: store.get().edit.counts.selected } })
-      } catch (err) { editor.endGpuEdit(); patch({ message: String(err) }) }
+      } catch (err) {
+        // kLasso may have run before the readback failed: re-upload the mirror (source of truth) so GPU flags match it again.
+        buffers.uploadFlagsRange(0, buffers.count - 1)
+        editor.endGpuEdit(); patch({ message: String(err) })
+      }
     }
     return () => { api.pick = undefined; api.lasso = undefined; api.viewSize = undefined; api.viewParams = undefined; p.dispose() }
   }, [gl, camera, buffers, manifest, editor, api, store])
