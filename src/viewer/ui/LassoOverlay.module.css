@@ -1,0 +1,3 @@
+/* width/height explicit: <svg> is a replaced element, so inset alone keeps its 300×150 intrinsic size. */
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; cursor: crosshair; touch-action: none; }
+.poly { fill: color-mix(in srgb, var(--pcv-accent) 20%, transparent); stroke: var(--pcv-accent); stroke-width: 1.5; stroke-dasharray: 4 3; }

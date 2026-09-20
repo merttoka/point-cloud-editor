@@ -29,6 +29,7 @@ export interface ViewerApi {
   pick?: (x: number, y: number, mode: SelectMode) => Promise<void>       // GPU pick at CSS px → editor.pick, edit.pickMs
   lasso?: (poly: Poly, mode: SelectMode) => Promise<void>                // GPU lasso at CSS px → flags mirror, edit.lasso
   viewSize?: () => { width: number; height: number }
+  exportZip?: () => Promise<void>                                        // Task 8
   viewParams?: () => ViewParams                                           // DEV: the matrices the GPU kernels used (CPU reference)
   cpuPick?: (x: number, y: number) => number | null                      // DEV reference (useLoader)
   cpuLasso?: (poly: Poly) => Uint32Array                                 // DEV reference (useLoader)
@@ -137,6 +138,7 @@ export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr }: {
   const scene = useMemo(() => new THREE.Scene(), [])
   return (
     <Canvas
+      style={{ position: 'absolute', inset: 0 }}   // same box as the SVG lasso overlay (root is position: relative)
       camera={camera}
       scene={scene}
       dpr={dpr}
