@@ -365,7 +365,7 @@ describe('ops', () => {
   it('applyPick modes', () => {
     const b = mk(0, S, 0, 0)
     expect(applyPick(b, 3, 'add', { min: 1, max: 1 })).toEqual({ min: 3, max: 3 })
-    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 1 })   // only bytes 0..1 actually changed
+    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 3 })   // bytes 1 and 3 cleared, 0 set
     expect(Array.from(b)).toEqual([S, 0, 0, 0])
     expect(applyPick(b, 0, 'subtract', { min: 0, max: 0 })).toEqual({ min: 0, max: 0 })
     expect(Array.from(b)).toEqual([0, 0, 0, 0])
@@ -383,7 +383,7 @@ describe('ops', () => {
 - [ ] **Step 3: Implement** — `src/viewer/edit/ops.ts`:
 
 ```ts
-import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, type Range } from './flags'
+import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, unionRange, type Range } from './flags'
 import type { SelectMode, SplitSide } from '../state/store'
 
 const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
@@ -415,7 +415,7 @@ export function applyPick(b: Uint8Array, idx: number, mode: SelectMode, selRange
   if (mode === 'subtract') return pass(b, idx, idx, (f) => f & ~SEL_BITS)
   const cleared = mode === 'replace' ? clearSelection(b, selRange) : null
   const set = pass(b, idx, idx, (f) => f | FLAG_SELECTED)
-  return cleared && set ? { min: Math.min(cleared.min, set.min), max: Math.max(cleared.max, set.max) } : cleared ?? set
+  return unionRange(cleared, set)
 }
 
 export const tagSplit = (b: Uint8Array, sideA: (i: number) => boolean) =>
