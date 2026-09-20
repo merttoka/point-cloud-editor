@@ -44,4 +44,9 @@ describe('createStore', () => {
     expect(s.get().compute).toEqual({ status: 'idle', radiusMul: 6, builtRadius: null, timings: [], elapsedMs: null })
     expect(s.get().bench).toEqual({ status: 'idle', progress: 0, n: 0, cpuMs: null, verify: null })
   })
+  it('edit defaults', () => {
+    expect(initialState.edit.tool).toBe('orbit')
+    expect(initialState.edit.counts).toEqual({ selected: 0, hidden: 0, deleted: 0 })
+    expect(initialState.edit.busy).toBe(false)
+  })
 })
