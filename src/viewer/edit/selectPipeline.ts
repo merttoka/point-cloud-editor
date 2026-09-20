@@ -50,7 +50,8 @@ export function createSelectPipeline(renderer: THREE.WebGPURenderer, buffers: Po
     u.viewProj.value.copy(v.viewProj); u.view.value.copy(v.view)
     u.viewport.value.set(v.width, v.height); u.pointSize.value = v.pointSize; u.refDist.value = v.refDist
     const t = chunkAttr.array as Uint32Array
-    manifest.chunks.forEach((ch, k) => { t[k * 2] = ch.offset; t[k * 2 + 1] = ch.offset + Math.ceil(ch.count * v.budget) })
+        // Unloaded chunks draw 0 instances (ChunkSprites), so they must not be pickable either.
+    manifest.chunks.forEach((ch, k) => { t[k * 2] = ch.offset; t[k * 2 + 1] = ch.offset + (buffers.loaded[k] ? Math.ceil(ch.count * v.budget) : 0) })
     chunkAttr.needsUpdate = true
   }
 

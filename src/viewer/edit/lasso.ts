@@ -27,6 +27,15 @@ export function packPoly(poly: Poly): { data: Float32Array; count: number } {
   return { data, count }
 }
 
+// Long strokes: keep every step-th vertex (first always kept) so the shape survives the 256-vertex cap instead of being cut off.
+export function decimatePoly(poly: Poly, max = MAX_LASSO_VERTS): Poly {
+  if (poly.length <= max) return poly
+  const step = Math.ceil(poly.length / max)
+  const out: Poly = []
+  for (let i = 0; i < poly.length; i += step) out.push(poly[i])
+  return out
+}
+
 export function simplifyPoly(poly: Poly, minDistPx: number): Poly {
   const out: Poly = []
   for (const p of poly) {

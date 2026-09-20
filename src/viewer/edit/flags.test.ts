@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { FLAG_SELECTED, FLAG_HIDDEN, FLAG_DELETED, countFlags, unionRange, wordOf, selectionRange } from './flags'
+import { FLAG_SELECTED, FLAG_HIDDEN, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, countFlags, unionRange, wordOf, selectionRange } from './flags'
 import { unpackWords } from '../format/quant'
 
 describe('flags helpers', () => {
@@ -9,8 +9,8 @@ describe('flags helpers', () => {
     expect(unionRange({ min: 3, max: 5 }, { min: 1, max: 4 })).toEqual({ min: 1, max: 5 })
   })
   it('countFlags counts each bit independently', () => {
-    const b = new Uint8Array([FLAG_SELECTED, FLAG_HIDDEN | FLAG_SELECTED, FLAG_DELETED, 0])
-    expect(countFlags(b)).toEqual({ selected: 2, hidden: 1, deleted: 1 })
+    const b = new Uint8Array([FLAG_SELECTED | FLAG_SPLIT_A, FLAG_HIDDEN | FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_B, 0])
+    expect(countFlags(b)).toEqual({ selected: 2, hidden: 1, deleted: 1, split: 2 })
   })
   it('wordOf packs byte i at shift (i & 3) * 8 — the vertex-stage unpack', () => {
     const b = new Uint8Array([1, 2, 4, 8, 16])

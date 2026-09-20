@@ -31,7 +31,7 @@ export type SplitSide = 'all' | 'A' | 'B'
 export interface EditState {
   tool: EditTool
   busy: boolean
-  counts: { selected: number; hidden: number; deleted: number }
+  counts: { selected: number; hidden: number; deleted: number; split: number }
   undoDepth: number
   redoDepth: number
   splitSide: SplitSide
@@ -74,7 +74,7 @@ export const initialState: ViewerState = {
   edit: {
     tool: 'orbit',
     busy: false,
-    counts: { selected: 0, hidden: 0, deleted: 0 },
+    counts: { selected: 0, hidden: 0, deleted: 0, split: 0 },
     undoDepth: 0,
     redoDepth: 0,
     splitSide: 'all',

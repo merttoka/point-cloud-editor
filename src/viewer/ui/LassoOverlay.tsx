@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { ViewerApi } from '../render/Scene'
 import { useStore, useViewerStore } from '../state/store'
-import { simplifyPoly, type Poly } from '../edit/lasso'
+import { decimatePoly, simplifyPoly, type Poly } from '../edit/lasso'
 import styles from './LassoOverlay.module.css'
 
 export function LassoOverlay({ api }: { api: ViewerApi }) {
@@ -19,7 +19,7 @@ export function LassoOverlay({ api }: { api: ViewerApi }) {
   const onMove = (e: PointerEvent<SVGSVGElement>) => { if (!drawing.current) return; const pt = local(e); setPoly((p) => simplifyPoly([...p, pt], 2)) }
   const onUp = (e: PointerEvent<SVGSVGElement>) => {
     drawing.current = false
-    const done = simplifyPoly([...poly, local(e)], 2)
+    const done = decimatePoly(simplifyPoly([...poly, local(e)], 2))
     setPoly([])
     if (done.length >= 3) void api.lasso?.(done, e.shiftKey ? 'add' : e.altKey ? 'subtract' : 'replace')
   }

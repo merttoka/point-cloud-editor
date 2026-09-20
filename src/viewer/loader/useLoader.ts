@@ -141,7 +141,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       const ref = () => {
         const v = api.viewParams!()
         const end = new Uint32Array(manifest.chunks.length)
-        manifest.chunks.forEach((ch, k) => { end[k] = ch.offset + Math.ceil(ch.count * v.budget) })
+        manifest.chunks.forEach((ch, k) => { end[k] = ch.offset + (buffers.loaded[k] ? Math.ceil(ch.count * v.budget) : 0) })
         const chunkOf = (i: number) => { let lo = 0, hi = manifest.chunks.length; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (manifest.chunks[m].offset <= i) lo = m; else hi = m }; return lo }
         const visible = (i: number) => (buffers.flagBytes[i] & (FLAG_HIDDEN | FLAG_DELETED)) === 0 && i < end[chunkOf(i)]
         const m = v.view.elements

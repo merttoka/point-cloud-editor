@@ -31,14 +31,15 @@ export function EditRunner({ buffers, manifest, editor, api }: { buffers: PointB
     const patch = (e: Partial<EditState>) => store.set({ edit: { ...store.get().edit, ...e } })
     api.viewSize = () => ({ width: canvas.clientWidth, height: canvas.clientHeight })
     if (import.meta.env.DEV) api.viewParams = view   // the CPU reference in useLoader projects with the same matrices
+    const ready = () => store.get().status === 'ready' && !store.get().edit.busy   // no edits while chunks are still arriving
     api.pick = async (x, y, mode) => {
-      if (store.get().edit.busy) return
+      if (!ready()) return
       patch({ busy: true })
       try { const r = await p.pick(x, y, view()); patch({ busy: false, pickMs: r.ms }); editor.pick(r.index, mode) }
       catch (err) { patch({ busy: false, message: String(err) }) }
     }
     api.lasso = async (polyPx, mode) => {
-      if (store.get().edit.busy) return
+      if (!ready()) return
       const { data, count } = packPoly(polyPx)
       if (count < 3) return
       editor.beginGpuEdit()
@@ -47,9 +48,9 @@ export function EditRunner({ buffers, manifest, editor, api }: { buffers: PointB
         editor.endGpuEdit()
         patch({ lasso: { gpuMs: r.gpuMs, readbackMs: r.readbackMs, selected: store.get().edit.counts.selected } })
       } catch (err) {
-        // kLasso may have run before the readback failed: re-upload the mirror (source of truth) so GPU flags match it again.
+        // kLasso may have run before the readback failed: re-upload the mirror (source of truth) so GPU flags match it again; no undo entry for a failed select.
         buffers.uploadFlagsRange(0, buffers.count - 1)
-        editor.endGpuEdit(); patch({ message: String(err) })
+        editor.abortGpuEdit(); patch({ message: String(err) })
       }
     }
     return () => { api.pick = undefined; api.lasso = undefined; api.viewSize = undefined; api.viewParams = undefined; p.dispose() }

@@ -15,6 +15,7 @@ export interface Editor {
   pick(idx: number | null, mode: SelectMode): void    // CPU apply of a GPU pick result (null = miss)
   beginGpuEdit(): void                                // undo.push(0, N-1); store busy = true
   endGpuEdit(): void                                  // recount, selRange, busy = false (call after the readback landed in bytes)
+  abortGpuEdit(): void                                // failed GPU select: drop the pushed command, then endGpuEdit
   undo(): void; redo(): void
   refresh(): void                                     // counts + depths → store
   dispose(): void
@@ -35,7 +36,10 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
 
   const refresh = () => {
     selRange = selectionRange(bytes)
-    patch({ counts: countFlags(bytes), undoDepth: undo.undoDepth(), redoDepth: undo.redoDepth() })
+    const counts = countFlags(bytes)
+    patch({ counts, undoDepth: undo.undoDepth(), redoDepth: undo.redoDepth() })
+    // Tags gone (undo, replace lasso, clear, hide, delete): a stale side filter would make every op a silent no-op.
+    if (counts.split === 0 && (store.get().edit.split.fitted || side() !== 'all')) patch({ split: { fitted: false, inlierRatio: null }, splitSide: 'all' })
   }
   // Whole-buffer ops: push N bytes first, drop the command again if nothing changed.
   const run = (pushRange: Range, op: () => Range | null) => {
@@ -91,6 +95,7 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
     },
     beginGpuEdit() { undo.push(0, N - 1); patch({ busy: true }) },
     endGpuEdit() { patch({ busy: false }); refresh() },
+    abortGpuEdit() { undo.dropLast(); patch({ busy: false }); refresh() },
     undo() { if (busy()) return; const r = undo.undo(); if (r) { buffers.uploadFlagsRange(r.min, r.max); refresh() } },
     redo() { if (busy()) return; const r = undo.redo(); if (r) { buffers.uploadFlagsRange(r.min, r.max); refresh() } },
     refresh,

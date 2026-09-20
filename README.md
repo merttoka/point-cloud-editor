@@ -74,7 +74,7 @@ npm run dev         # Chrome with WebGPU → http://localhost:5173
 | drag / wheel | orbit / zoom (OrbitControls, +Z up; orbit tool only) |
 | click | pick the nearest rendered point under the cursor (< 4 px pointer travel) → replace selection; miss clears it |
 | `⇧` click / `⌥` click | add / subtract the picked point |
-| `L`, drag | lasso tool: drag a polygon on the SVG overlay (simplified at 2 px, ≤ 256 vertices), release → replace; `⇧` add, `⌥` subtract; double-click or `Esc` → orbit |
+| `L`, drag | lasso tool: drag a polygon on the SVG overlay (simplified at 2 px; longer strokes decimated to ≤ 256 vertices), release → replace; `⇧` add, `⌥` subtract; double-click or `Esc` → orbit |
 | `I` / `X` / `Delete` | isolate (hide everything else) / hide / delete the selection (or the chosen split side) |
 | `U` / `C` | unhide all / clear selection |
 | `S` | split: RANSAC + PCA plane through the selection, tags sides A / B (toolbar select `all / A / B` scopes the next op) |

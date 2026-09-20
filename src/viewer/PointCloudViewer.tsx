@@ -44,7 +44,7 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
     if (e.code === 'Backslash') { if (!e.repeat) setShowKeys(true); e.preventDefault(); return }   // code, not key: stable across AltGr layouts on keyup
     const action = keyAction(e)
     if (!action) return
-    const editor = loaded?.editor
+    const editor = store.get().status === 'ready' ? loaded?.editor : undefined   // no edits while chunks are still arriving
     const setTool = (tool: EditTool) => store.set({ edit: { ...store.get().edit, tool } })
     switch (action) {
       case 'fit': api.fit(); break

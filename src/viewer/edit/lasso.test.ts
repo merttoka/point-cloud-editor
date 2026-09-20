@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pointInPolygon, polyBounds, packPoly, simplifyPoly, MAX_LASSO_VERTS } from './lasso'
+import { pointInPolygon, polyBounds, packPoly, simplifyPoly, decimatePoly, MAX_LASSO_VERTS } from './lasso'
 
 const P = (...xy: number[]) => new Float32Array(xy)
 describe('pointInPolygon (even-odd)', () => {
@@ -34,6 +34,15 @@ describe('polygon helpers', () => {
     expect(count).toBe(MAX_LASSO_VERTS)
     expect(data.length).toBe(MAX_LASSO_VERTS * 2)
     expect(data[2 * 255]).toBe(255)
+  })
+  it('decimatePoly keeps ≤ MAX_LASSO_VERTS, the first vertex and the order', () => {
+    const poly = Array.from({ length: 1000 }, (_, i) => [i, i * 2] as [number, number])
+    const out = decimatePoly(poly)
+    expect(out.length).toBeLessThanOrEqual(MAX_LASSO_VERTS)
+    expect(out.length).toBe(250)
+    expect(out[0]).toEqual([0, 0])
+    for (let i = 1; i < out.length; i++) expect(out[i][0]).toBeGreaterThan(out[i - 1][0])
+    expect(decimatePoly(poly.slice(0, 256))).toHaveLength(256)
   })
   it('simplifyPoly drops near-duplicate vertices', () => {
     expect(simplifyPoly([[0, 0], [1, 0], [5, 0], [5.5, 0], [10, 0]], 2)).toEqual([[0, 0], [5, 0], [10, 0]])

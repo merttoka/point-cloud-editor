@@ -46,7 +46,7 @@ describe('createStore', () => {
   })
   it('edit defaults', () => {
     expect(initialState.edit.tool).toBe('orbit')
-    expect(initialState.edit.counts).toEqual({ selected: 0, hidden: 0, deleted: 0 })
+    expect(initialState.edit.counts).toEqual({ selected: 0, hidden: 0, deleted: 0, split: 0 })
     expect(initialState.edit.busy).toBe(false)
   })
 })
