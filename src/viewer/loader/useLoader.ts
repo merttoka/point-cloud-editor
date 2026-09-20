@@ -4,6 +4,7 @@ import type { LoaderIn, LoaderOut } from './fetchChunks'
 import type { ChunkRef } from './chunkQueue'
 import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
+import { createEditor, type Editor } from '../edit/editor'
 import { useViewerStore } from '../state/store'
 import { homePose, type ViewerApi } from '../render/Scene'
 import { BENCH_CAP, benchWords, tableSizeFor } from '../compute/params'
@@ -16,6 +17,7 @@ export interface Loaded {
   binUrl: string
   buffers: PointBuffers
   handle: PointMaterialHandle
+  editor: Editor
 }
 
 export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
@@ -30,8 +32,9 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       if (cancelled) return
       const buffers = createPointBuffers(manifest.pointCount, manifest.chunks.length)
       const handle = createPointMaterial(buffers, manifest, store.get())
+      const editor = createEditor(buffers, manifest, store)
       store.set({ manifest })
-      setLoaded({ manifest, binUrl, buffers, handle })
+      setLoaded({ manifest, binUrl, buffers, handle, editor })
     }).catch((err: unknown) => {
       if (!cancelled) store.set({ status: 'error', error: String(err) })
     })
@@ -40,7 +43,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
 
   useEffect(() => {
     if (!loaded) return
-    const { manifest, binUrl, buffers } = loaded
+    const { manifest, binUrl, buffers, editor } = loaded
     const centroid = centroidOf(manifest.bounds)
     const worker = new Worker(new URL('./loader.worker.ts', import.meta.url), { type: 'module' })
     const chunks: ChunkRef[] = manifest.chunks.map((c, index) => {
@@ -94,7 +97,11 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       return new Promise((resolve) => { benchResolve = resolve })
     }
     api.cancelBench = () => { const m: LoaderIn = { type: 'cancelBench' }; worker.postMessage(m) }
-    if (import.meta.env.DEV) (window as unknown as { __pcvBench?: unknown }).__pcvBench = { state: () => store.get().bench, run: api.cpuBench }
+    if (import.meta.env.DEV) {
+      const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }
+      w.__pcvBench = { state: () => store.get().bench, run: api.cpuBench }
+      w.__pcvEdit = { editor, buffers }
+    }
     return () => {
       const m: LoaderIn = { type: 'dispose' }
       worker.postMessage(m)
@@ -103,11 +110,14 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       api.sendCamera = undefined
       api.cpuBench = undefined; api.cancelBench = undefined
       benchResolve?.(null); benchResolve = null
-      if (import.meta.env.DEV) delete (window as unknown as { __pcvBench?: unknown }).__pcvBench
+      if (import.meta.env.DEV) {
+        const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }
+        delete w.__pcvBench; delete w.__pcvEdit
+      }
     }
   }, [loaded, store, api])
 
-  useEffect(() => () => { loaded?.handle.dispose(); loaded?.buffers.dispose() }, [loaded])
+  useEffect(() => () => { loaded?.editor.dispose(); loaded?.handle.dispose(); loaded?.buffers.dispose() }, [loaded])
 
   return loaded
 }

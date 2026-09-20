@@ -5,6 +5,7 @@ export interface UndoRing {
   push(min: number, max: number): void      // call BEFORE mutating bytes[min..max]
   undo(): Range | null
   redo(): Range | null
+  dropLast(): void                          // discard the newest undo command (op turned out to be a no-op)
   undoDepth(): number
   redoDepth(): number
   bytes(): number
@@ -38,6 +39,7 @@ export function createUndoRing(live: Uint8Array, opts: { maxCommands?: number; m
     },
     undo() { const c = undo.pop(); if (!c) return null; swap(c); redo.push(c); return { min: c.min, max: c.max } },
     redo() { const c = redo.pop(); if (!c) return null; swap(c); undo.push(c); return { min: c.min, max: c.max } },
+    dropLast() { const c = undo.pop(); if (c) total -= c.flags.length },
     undoDepth: () => undo.length,
     redoDepth: () => redo.length,
     bytes: () => total,

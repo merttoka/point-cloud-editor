@@ -46,7 +46,7 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
 
   const message = !hasGpu ? 'WebGPU not available in this browser.' : status === 'error' ? error : null
   return (
-    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur}>
+    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} data-pcv-root tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur}>
       <div id="hud" ref={hudEl} className={styles.hud} />
       <Panel api={api} />
       {showKeys && <KeysOverlay />}

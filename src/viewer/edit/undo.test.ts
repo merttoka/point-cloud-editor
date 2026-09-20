@@ -40,4 +40,10 @@ describe('undo ring', () => {
     expect(ring.undoDepth()).toBe(2)
     expect(ring.bytes()).toBe(200)
   })
+  it('dropLast removes the newest command and its bytes', () => {
+    const b = new Uint8Array(4)
+    const ring = createUndoRing(b)
+    ring.push(0, 3); ring.dropLast()
+    expect(ring.undoDepth()).toBe(0); expect(ring.bytes()).toBe(0)
+  })
 })
