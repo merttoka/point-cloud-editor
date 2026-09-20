@@ -6,7 +6,8 @@ import styles from './Toolbar.module.css'
 interface BtnProps { label: string; on: () => void; ready: boolean; disabled?: boolean; active?: boolean; title?: string }
 // Module-level so React keeps the button identity across renders (a per-render component would remount on every store change).
 function Btn({ label, on, ready, disabled, active, title }: BtnProps) {
-  return <button className={styles.btn} data-active={active} disabled={!ready || disabled} onClick={on} title={title}>{label}</button>
+  // mousedown prevented so a click leaves focus on the viewer root (keys stay scoped there); the <select> keeps default behaviour.
+  return <button className={styles.btn} data-active={active} disabled={!ready || disabled} onClick={on} onMouseDown={(e) => e.preventDefault()} title={title}>{label}</button>
 }
 
 export function Toolbar({ editor, api }: { editor: Editor | null; api: ViewerApi }) {
@@ -17,8 +18,7 @@ export function Toolbar({ editor, api }: { editor: Editor | null; api: ViewerApi
   const hasSel = edit.counts.selected > 0
   const setEdit = (p: Partial<typeof edit>) => store.set({ edit: { ...store.get().edit, ...p } })
   return (
-    // mousedown is prevented so clicking a button leaves focus on the root (keys stay scoped there).
-    <div className={styles.bar} onMouseDown={(e) => e.preventDefault()}>
+    <div className={styles.bar}>
       <Btn ready={ready} label="Orbit" active={edit.tool === 'orbit'} on={() => setEdit({ tool: 'orbit' })} title="Esc" />
       <Btn ready={ready} label="Lasso" active={edit.tool === 'lasso'} on={() => setEdit({ tool: 'lasso' })} title="L" />
       <span className={styles.sep} />

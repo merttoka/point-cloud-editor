@@ -39,6 +39,8 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
 
   // Keys live on the root only (focus-scoped); nothing is attached to window/document.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const tag = (e.target as HTMLElement).tagName
+    if (tag === 'SELECT' || tag === 'INPUT') return   // Panel controls keep their own key behaviour
     if (e.code === 'Backslash') { if (!e.repeat) setShowKeys(true); e.preventDefault(); return }   // code, not key: stable across AltGr layouts on keyup
     const action = keyAction(e)
     if (!action) return
@@ -72,9 +74,10 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
     const r = t.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => { down.current = store.get().edit.tool === 'orbit' ? canvasPos(e) : null }
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => { down.current = e.button === 0 && store.get().edit.tool === 'orbit' ? canvasPos(e) : null }
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     const d = down.current; down.current = null
+    if (e.button !== 0) return
     const p = canvasPos(e)
     if (!d || !p || Math.hypot(p.x - d.x, p.y - d.y) > 4) return
     void api.pick?.(p.x, p.y, e.shiftKey ? 'add' : e.altKey ? 'subtract' : 'replace')
@@ -84,9 +87,9 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
   return (
     <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} data-pcv-root tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
       <div id="hud" ref={hudEl} className={styles.hud} />
+      {loaded && <LassoOverlay api={api} />}
       <Panel api={api} />
       <Toolbar editor={loaded?.editor ?? null} api={api} />
-      {loaded && <LassoOverlay api={api} />}
       {showKeys && <KeysOverlay />}
       {message === null && status !== 'ready' && !error && <LoadingOverlay />}
       {message !== null ? <div className={styles.message}>{message}</div>

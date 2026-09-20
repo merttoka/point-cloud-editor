@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { ViewerApi } from '../render/Scene'
 import { useStore, useViewerStore } from '../state/store'
 import { simplifyPoly, type Poly } from '../edit/lasso'
@@ -9,6 +9,7 @@ export function LassoOverlay({ api }: { api: ViewerApi }) {
   const tool = useStore((s) => s.edit.tool)
   const [poly, setPoly] = useState<Poly>([])
   const drawing = useRef(false)
+  useEffect(() => { if (tool !== 'lasso') { drawing.current = false; setPoly([]) } }, [tool])   // Esc mid-drag drops the polygon
   const local = (e: PointerEvent<SVGSVGElement>): [number, number] => {
     const r = e.currentTarget.getBoundingClientRect()
     return [e.clientX - r.left, e.clientY - r.top]

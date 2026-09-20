@@ -1,4 +1,4 @@
-.panel { position: absolute; top: 8px; right: 8px; z-index: 1; width: 220px; padding: 10px 12px; background: var(--pcv-card); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); display: grid; gap: 8px; }
+.panel { position: absolute; top: 8px; right: 8px; z-index: 2; width: 220px; padding: 10px 12px; background: var(--pcv-card); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); display: grid; gap: 8px; }
 .name { font-weight: 600; }
 .muted { color: var(--pcv-muted); }
 .bar { height: 4px; background: var(--pcv-surface); border-radius: 2px; overflow: hidden; }
