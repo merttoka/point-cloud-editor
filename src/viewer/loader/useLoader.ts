@@ -15,6 +15,12 @@ import { FLAG_DELETED, FLAG_HIDDEN } from '../edit/flags'
 
 type BenchResult = { normals: Uint32Array; ao: Uint8Array; n: number } | null
 
+function download(bytes: Uint8Array, name: string) {
+  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }))
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export interface Loaded {
   manifest: Manifest
   binUrl: string
@@ -56,6 +62,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
     let points = 0, n = 0
     let benchResolve: ((r: BenchResult) => void) | null = null
     let benchN = 0
+    let exportT0 = 0
     worker.onmessage = (e: MessageEvent<LoaderOut>) => {
       const msg = e.data
       if (msg.type === 'benchProgress') {
@@ -66,6 +73,15 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       } else if (msg.type === 'benchCancelled') {
         store.set({ bench: { ...store.get().bench, status: 'cancelled' } })
         benchResolve?.(null); benchResolve = null
+      } else if (msg.type === 'exportDone') {
+        if (import.meta.env.DEV) {
+          const w = window as unknown as { __pcvEdit?: { lastExport?: unknown } }
+          if (w.__pcvEdit) w.__pcvEdit.lastExport = { count: msg.count, bytes: msg.zip.byteLength, ms: performance.now() - exportT0 }
+        }
+        download(msg.zip, 'export.zip')
+        store.set({ edit: { ...store.get().edit, busy: false, message: `exported ${msg.count.toLocaleString()} points` } })
+      } else if (msg.type === 'exportError') {
+        store.set({ edit: { ...store.get().edit, busy: false, message: `export failed: ${msg.message}` } })
       } else if (msg.type === 'chunk') {
         const t0 = performance.now()
         buffers.uploadRange(manifest.chunks[msg.index].offset, msg.words)
@@ -100,6 +116,15 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       return new Promise((resolve) => { benchResolve = resolve })
     }
     api.cancelBench = () => { const m: LoaderIn = { type: 'cancelBench' }; worker.postMessage(m) }
+    api.exportZip = async () => {
+      const edit = store.get().edit
+      if (edit.busy) return
+      exportT0 = performance.now()
+      store.set({ edit: { ...edit, busy: true, message: undefined } })
+      // Copies: the attribute's own array and the flags mirror must stay behind; the worker takes ownership of the slices.
+      const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), manifest }
+      worker.postMessage(m, [m.words.buffer, m.flags.buffer])
+    }
     if (import.meta.env.DEV) {
       const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }
       w.__pcvBench = { state: () => store.get().bench, run: api.cpuBench }
@@ -133,7 +158,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       worker.onmessage = null
       worker.terminate()
       api.sendCamera = undefined
-      api.cpuBench = undefined; api.cancelBench = undefined
+      api.cpuBench = undefined; api.cancelBench = undefined; api.exportZip = undefined
       benchResolve?.(null); benchResolve = null
       if (import.meta.env.DEV) {
         const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }

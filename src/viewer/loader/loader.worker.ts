@@ -1,6 +1,7 @@
 import { ChunkQueue } from './chunkQueue'
 import { fetchAll, type LoaderIn, type LoaderOut } from './fetchChunks'
-import { BYTES_PER_POINT } from '../format/quant'
+import { BYTES_PER_POINT, WORDS_PER_POINT } from '../format/quant'
+import { buildZip, compactPoints, exportManifest } from '../edit/export'
 import { runCpu } from '../compute/cpu/run'
 
 const ctx = self as unknown as { postMessage(msg: LoaderOut, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<LoaderIn>) => void) | null }
@@ -23,6 +24,15 @@ ctx.onmessage = (e) => {
       if (!res) { ctx.postMessage({ type: 'benchCancelled' }); return }
       ctx.postMessage({ type: 'benchDone', normals: res.normals, ao: res.ao, ms: res.ms }, [res.normals.buffer, res.ao.buffer])
     }).catch(() => ctx.postMessage({ type: 'benchCancelled' }))   // worker exceptions surface as a cancelled bench
+    return
+  }
+  if (msg.type === 'export') {
+    // msg.words/msg.flags are released when this handler returns — the worker keeps nothing (A6).
+    try {
+      const r = compactPoints(msg.words, msg.flags, msg.words.length / WORDS_PER_POINT)
+      const zip = buildZip(r.words, exportManifest(msg.manifest, r.count, r.qmin, r.qmax))
+      ctx.postMessage({ type: 'exportDone', zip, count: r.count }, [zip.buffer])
+    } catch (err) { ctx.postMessage({ type: 'exportError', message: String(err) }) }
     return
   }
   queue = new ChunkQueue(msg.chunks)

@@ -1,5 +1,6 @@
 import type { ChunkQueue, ChunkRef } from './chunkQueue'
 import { BYTES_PER_POINT } from '../format/quant'
+import type { Manifest } from './manifest'
 
 export type LoaderIn =
   | { type: 'start'; binUrl: string; chunks: ChunkRef[]; pos?: [number, number, number] }
@@ -7,6 +8,7 @@ export type LoaderIn =
   | { type: 'dispose' }
   | { type: 'cpuBench'; words: Uint32Array; n: number; dqScale: [number, number, number]; radius: number; tableSize: number }
   | { type: 'cancelBench' }
+  | { type: 'export'; words: Uint32Array; flags: Uint8Array; manifest: Manifest }
 export type LoaderOut =
   | { type: 'chunk'; index: number; words: Uint32Array }
   | { type: 'done' }
@@ -14,6 +16,8 @@ export type LoaderOut =
   | { type: 'benchProgress'; frac: number }
   | { type: 'benchDone'; normals: Uint32Array; ao: Uint8Array; ms: { hash: number; normals: number; ao: number } }
   | { type: 'benchCancelled' }
+  | { type: 'exportDone'; zip: Uint8Array; count: number }
+  | { type: 'exportError'; message: string }
 
 export interface LoaderIO {
   fetch: typeof fetch
