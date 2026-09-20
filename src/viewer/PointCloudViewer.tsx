@@ -1,12 +1,12 @@
-import { useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent } from 'react'
-import { StoreContext, createStore, initialState, useStore, useViewerStore, type EditTool } from './state/store'
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent } from 'react'
+import { StoreContext, createStore, initialState, patchEdit, useStore, useViewerStore, type EditTool } from './state/store'
 import { useLoader } from './loader/useLoader'
 import { Scene, type ViewerApi } from './render/Scene'
 import { Panel } from './ui/Panel'
 import { KeysOverlay, LoadingOverlay } from './ui/Overlays'
 import { Toolbar } from './ui/Toolbar'
 import { LassoOverlay } from './ui/LassoOverlay'
-import { keyAction } from './ui/keys'
+import { keyAction, modeFromEvent } from './ui/keys'
 import styles from './PointCloudViewer.module.css'
 import tokens from './theme/tokens.module.css'
 
@@ -44,8 +44,8 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
     if (e.code === 'Backslash') { if (!e.repeat) setShowKeys(true); e.preventDefault(); return }   // code, not key: stable across AltGr layouts on keyup
     const action = keyAction(e)
     if (!action) return
-    const editor = store.get().status === 'ready' ? loaded?.editor : undefined   // no edits while chunks are still arriving
-    const setTool = (tool: EditTool) => store.set({ edit: { ...store.get().edit, tool } })
+    const editor = loaded?.editor   // gates itself on status/busy
+    const setTool = (tool: EditTool) => patchEdit(store, { tool })
     switch (action) {
       case 'fit': api.fit(); break
       case 'hud': store.set({ showHud: !store.get().showHud }); break
@@ -80,12 +80,17 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
     if (e.button !== 0) return
     const p = canvasPos(e)
     if (!d || !p || Math.hypot(p.x - d.x, p.y - d.y) > 4) return
-    void api.pick?.(p.x, p.y, e.shiftKey ? 'add' : e.altKey ? 'subtract' : 'replace')
+    void api.pick?.(p.x, p.y, modeFromEvent(e))
   }
+
+  // Selection tint follows the theme accent; read from this root so several viewers each get their own.
+  const rootEl = useRef<HTMLDivElement>(null)
+  const [accent, setAccent] = useState('')
+  useEffect(() => { if (rootEl.current) setAccent(getComputedStyle(rootEl.current).getPropertyValue('--pcv-accent').trim()) }, [theme])
 
   const message = !hasGpu ? 'WebGPU not available in this browser.' : status === 'error' ? error : null
   return (
-    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} data-pcv-root tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} ref={rootEl} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
       <div id="hud" ref={hudEl} className={styles.hud} />
       {loaded && <LassoOverlay api={api} />}
       <Panel api={api} />
@@ -93,7 +98,7 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
       {showKeys && <KeysOverlay />}
       {message === null && status !== 'ready' && !error && <LoadingOverlay />}
       {message !== null ? <div className={styles.message}>{message}</div>
-        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} editor={loaded.editor} api={api} hudEl={hudEl} dpr={dpr} />}
+        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} editor={loaded.editor} api={api} hudEl={hudEl} dpr={dpr} accent={accent} />}
     </div>
   )
 }

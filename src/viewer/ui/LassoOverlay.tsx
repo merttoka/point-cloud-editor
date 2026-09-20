@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { ViewerApi } from '../render/Scene'
-import { useStore, useViewerStore } from '../state/store'
+import { patchEdit, useStore, useViewerStore } from '../state/store'
 import { decimatePoly, simplifyPoly, type Poly } from '../edit/lasso'
+import { modeFromEvent } from './keys'
 import styles from './LassoOverlay.module.css'
 
 export function LassoOverlay({ api }: { api: ViewerApi }) {
@@ -21,12 +22,12 @@ export function LassoOverlay({ api }: { api: ViewerApi }) {
     drawing.current = false
     const done = decimatePoly(simplifyPoly([...poly, local(e)], 2))
     setPoly([])
-    if (done.length >= 3) void api.lasso?.(done, e.shiftKey ? 'add' : e.altKey ? 'subtract' : 'replace')
+    if (done.length >= 3) void api.lasso?.(done, modeFromEvent(e))
   }
   if (tool !== 'lasso') return null
   return (
     <svg className={styles.overlay} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
-      onPointerCancel={() => { drawing.current = false; setPoly([]) }} onDoubleClick={() => store.set({ edit: { ...store.get().edit, tool: 'orbit' } })}>
+      onPointerCancel={() => { drawing.current = false; setPoly([]) }} onDoubleClick={() => patchEdit(store, { tool: 'orbit' })}>
       {poly.length > 1 && <polygon className={styles.poly} points={poly.map((p) => p.join(',')).join(' ')} />}
     </svg>
   )

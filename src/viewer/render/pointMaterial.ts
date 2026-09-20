@@ -15,7 +15,7 @@ export interface PointMaterialHandle {
   setPointSize(px: number): void
   setRefDist(d: number): void
   setShading(mode: Shading): void
-  setHighlight(c: { selected?: string; splitA?: string; splitB?: string }): void   // CSS hex strings
+  setHighlight(selected: string): void   // CSS colour for the selection tint (split colours are fixed)
   dispose(): void
 }
 
@@ -101,8 +101,7 @@ export function createPointMaterial(
   }
   const lutNode = texture(lutFor(init.colorMode === 'class' ? 'class' : init.colormap), vec2(vertexStage(t), 0.5))
   const base = mix(lutNode.mul(vertexStage(light)), vertexStage(abs(normalObj)), debugNormals)
-  const highlighted = mix(mix(mix(base, cSel, tint.x.mul(0.7)), cA, tint.y), cB, tint.z)
-  material.colorNode = highlighted
+  material.colorNode = mix(mix(mix(base, cSel, tint.x.mul(0.7)), cA, tint.y), cB, tint.z)
 
   return {
     material,
@@ -111,7 +110,7 @@ export function createPointMaterial(
     setPointSize: (px) => { pointSize.value = px },
     setRefDist: (d) => { refDist.value = d },
     setShading: (m) => { shading.value = SHADING[m] },
-    setHighlight: (c) => { if (c.selected) cSel.value.set(c.selected); if (c.splitA) cA.value.set(c.splitA); if (c.splitB) cB.value.set(c.splitB) },
+    setHighlight: (selected) => { cSel.value.set(selected) },
     dispose: () => { luts.forEach((t) => t.dispose()); material.dispose() },
   }
 }

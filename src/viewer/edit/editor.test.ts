@@ -17,6 +17,7 @@ function setup() {
   const q = buffers.qpos.array as Uint32Array
   for (let i = 0; i < 8; i++) { const [a, b] = packWords(i * 8000, (i * 13000) % 30000, i % 2 ? 33422 : 32112, 0); q[i * 2] = a; q[i * 2 + 1] = b }
   const store = createStore(initialState)
+  store.set({ status: 'ready' })                     // the editor refuses edits while chunks are still arriving
   return { buffers, store, editor: createEditor(buffers, manifest, store) }
 }
 describe('editor', () => {

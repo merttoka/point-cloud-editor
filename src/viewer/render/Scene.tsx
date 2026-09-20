@@ -28,8 +28,7 @@ export interface ViewerApi {
   cancelBench?: () => void
   pick?: (x: number, y: number, mode: SelectMode) => Promise<void>       // GPU pick at CSS px → editor.pick, edit.pickMs
   lasso?: (poly: Poly, mode: SelectMode) => Promise<void>                // GPU lasso at CSS px → flags mirror, edit.lasso
-  viewSize?: () => { width: number; height: number }
-  exportZip?: () => Promise<void>                                        // Task 8
+  exportZip?: () => Promise<void>                                        // worker compaction + zip → download
   viewParams?: () => ViewParams                                           // DEV: the matrices the GPU kernels used (CPU reference)
   cpuPick?: (x: number, y: number) => number | null                      // DEV reference (useLoader)
   cpuLasso?: (poly: Poly) => Uint32Array                                 // DEV reference (useLoader)
@@ -125,8 +124,8 @@ function DatasetLimitCheck({ buffers }: { buffers: PointBuffers }) {
   return null
 }
 
-export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr }: {
-  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; editor: Editor; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>; dpr?: number
+export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr, accent }: {
+  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; editor: Editor; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>; dpr?: number; accent: string
 }) {
   const store = useViewerStore()
   const camera = useMemo(() => {
@@ -153,7 +152,7 @@ export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr }: {
       }}
     >
       <DatasetLimitCheck buffers={buffers} />
-      <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} />
+      <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} accent={accent} />
       <CameraRig manifest={manifest} handle={handle} api={api} />
       <Hud el={hudEl} />
       <PostPass />

@@ -5,7 +5,7 @@ import type { ChunkRef } from './chunkQueue'
 import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
 import { createEditor, type Editor } from '../edit/editor'
-import { useViewerStore } from '../state/store'
+import { patchEdit, useViewerStore } from '../state/store'
 import { homePose, type ViewerApi } from '../render/Scene'
 import { BENCH_CAP, benchWords, tableSizeFor } from '../compute/params'
 import { dequantScale, WORDS_PER_POINT } from '../format/quant'
@@ -79,9 +79,9 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
           if (w.__pcvEdit) w.__pcvEdit.lastExport = { count: msg.count, bytes: msg.zip.byteLength, ms: performance.now() - exportT0 }
         }
         download(msg.zip, 'export.zip')
-        store.set({ edit: { ...store.get().edit, busy: false, message: `exported ${msg.count.toLocaleString()} points` } })
+        patchEdit(store, { busy: false, message: `exported ${msg.count.toLocaleString()} points` })
       } else if (msg.type === 'exportError') {
-        store.set({ edit: { ...store.get().edit, busy: false, message: `export failed: ${msg.message}` } })
+        patchEdit(store, { busy: false, message: `export failed: ${msg.message}` })
       } else if (msg.type === 'chunk') {
         const t0 = performance.now()
         buffers.uploadRange(manifest.chunks[msg.index].offset, msg.words)
@@ -117,17 +117,16 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
     }
     api.cancelBench = () => { const m: LoaderIn = { type: 'cancelBench' }; worker.postMessage(m) }
     api.exportZip = async () => {
-      const edit = store.get().edit
-      if (edit.busy) return
+      if (store.get().edit.busy) return
       exportT0 = performance.now()
-      store.set({ edit: { ...edit, busy: true, message: undefined } })
+      patchEdit(store, { busy: true, message: undefined })
       try {
         // Copies: the attribute's own array and the flags mirror must stay behind; the worker takes ownership of the slices.
         const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), manifest }
         worker.postMessage(m, [m.words.buffer, m.flags.buffer])
       } catch (err) {
         // A synchronous postMessage failure would otherwise leave the toolbar locked behind `busy`.
-        store.set({ edit: { ...store.get().edit, busy: false, message: `export failed: ${String(err)}` } })
+        patchEdit(store, { busy: false, message: `export failed: ${String(err)}` })
       }
     }
     if (import.meta.env.DEV) {
@@ -166,7 +165,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       api.cpuBench = undefined; api.cancelBench = undefined; api.exportZip = undefined
       benchResolve?.(null); benchResolve = null
       // Terminating mid-export drops its exportDone; release the gate so a new dataset's toolbar isn't locked.
-      if (store.get().edit.busy) store.set({ edit: { ...store.get().edit, busy: false } })
+      if (store.get().edit.busy) patchEdit(store, { busy: false })
       if (import.meta.env.DEV) {
         const w = window as unknown as { __pcvBench?: unknown; __pcvEdit?: unknown }
         delete w.__pcvBench; delete w.__pcvEdit

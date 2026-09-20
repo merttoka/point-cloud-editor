@@ -5,7 +5,7 @@ import type { PointBuffers } from './PointBuffers'
 import type { PointMaterialHandle } from './pointMaterial'
 import { useStore, useViewerStore } from '../state/store'
 
-export function ChunkSprites({ buffers, manifest, handle }: { buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle }) {
+export function ChunkSprites({ buffers, manifest, handle, accent }: { buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; accent: string }) {
   const store = useViewerStore()
   const sprites = useMemo(() => {
     const [cx, cy, cz] = centroidOf(manifest.bounds)
@@ -44,12 +44,7 @@ export function ChunkSprites({ buffers, manifest, handle }: { buffers: PointBuff
   const shading = useStore((s) => s.shading)
   useEffect(() => { handle.setPointSize(pointSize) }, [handle, pointSize])
   useEffect(() => { handle.setShading(shading) }, [handle, shading])
-  // Selection tint follows the theme accent. First viewer root on the page wins when several coexist.
-  useEffect(() => {
-    const el = document.querySelector<HTMLElement>('[data-pcv-root]')
-    const accent = el ? getComputedStyle(el).getPropertyValue('--pcv-accent').trim() : ''
-    if (accent) handle.setHighlight({ selected: accent })
-  }, [handle])
+  useEffect(() => { if (accent) handle.setHighlight(accent) }, [handle, accent])
   useEffect(() => {
     handle.setMode(colorMode)
     handle.setLut(colorMode === 'class' ? 'class' : colormap)

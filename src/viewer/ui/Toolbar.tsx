@@ -1,4 +1,4 @@
-import { useStore, useViewerStore, type SplitSide } from '../state/store'
+import { patchEdit, useStore, useViewerStore, type SplitSide } from '../state/store'
 import type { ViewerApi } from '../render/Scene'
 import type { Editor } from '../edit/editor'
 import styles from './Toolbar.module.css'
@@ -16,7 +16,7 @@ export function Toolbar({ editor, api }: { editor: Editor | null; api: ViewerApi
   const status = useStore((s) => s.status)
   const ready = status === 'ready' && !!editor && !edit.busy
   const hasSel = edit.counts.selected > 0
-  const setEdit = (p: Partial<typeof edit>) => store.set({ edit: { ...store.get().edit, ...p } })
+  const setEdit = (p: Partial<typeof edit>) => patchEdit(store, p)
   return (
     <div className={styles.bar}>
       <Btn ready={ready} label="Orbit" active={edit.tool === 'orbit'} on={() => setEdit({ tool: 'orbit' })} title="Esc" />

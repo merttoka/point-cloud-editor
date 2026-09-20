@@ -36,7 +36,7 @@ export interface EditState {
   redoDepth: number
   splitSide: SplitSide
   split: { fitted: boolean; inlierRatio: number | null }
-  lasso: { gpuMs: number | null; readbackMs: number; selected: number } | null
+  lasso: { gpuMs: number | null; readbackMs: number } | null
   pickMs: number | null
   message?: string
 }
@@ -105,6 +105,9 @@ export function createStore<T extends object>(initial: T): Store<T> {
     },
   }
 }
+
+// The store merges top-level keys only; every `edit` write goes through here.
+export const patchEdit = (store: Store<ViewerState>, p: Partial<EditState>) => store.set({ edit: { ...store.get().edit, ...p } })
 
 export const StoreContext = createContext<Store<ViewerState> | null>(null)
 

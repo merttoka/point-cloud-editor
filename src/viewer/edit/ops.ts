@@ -30,7 +30,7 @@ export function applyPick(b: Uint8Array, idx: number, mode: SelectMode, selRange
   if (mode === 'subtract') return pass(b, idx, idx, (f) => f & ~SEL_BITS)
   const cleared = mode === 'replace' ? clearSelection(b, selRange) : null
   const set = pass(b, idx, idx, (f) => f | FLAG_SELECTED)
-  return cleared && set ? unionRange(cleared, set) : cleared ?? set
+  return unionRange(cleared, set)
 }
 
 export const tagSplit = (b: Uint8Array, sideA: (i: number) => boolean) =>

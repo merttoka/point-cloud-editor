@@ -6,7 +6,7 @@ import { centroidOf, type Manifest } from '../loader/manifest'
 import { dequantScale } from '../format/quant'
 import type { SelectMode } from '../state/store'
 import { timedCompute } from '../compute/timing'
-import { resetPick, pickDepth, pickIndex, lassoSelect, LASSO_POLY_WORDS } from '../compute/wgsl/select'
+import { resetPick, pickDepth, pickIndex, lassoSelect } from '../compute/wgsl/select'
 import { polyBounds, MAX_LASSO_VERTS } from './lasso'
 
 export interface ViewParams { viewProj: THREE.Matrix4; view: THREE.Matrix4; width: number; height: number; pointSize: number; refDist: number; budget: number }
@@ -25,7 +25,7 @@ export function createSelectPipeline(renderer: THREE.WebGPURenderer, buffers: Po
   const N = buffers.count, words = Math.ceil(N / 4), chunks = manifest.chunks.length
   const b = manifest.bounds, c = centroidOf(b)
   const pickAttr = new THREE.StorageBufferAttribute(new Uint32Array(2), 1)
-  const polyAttr = new THREE.StorageBufferAttribute(new Float32Array(LASSO_POLY_WORDS), 2)
+  const polyAttr = new THREE.StorageBufferAttribute(new Float32Array(MAX_LASSO_VERTS * 2), 2)
   const chunkAttr = new THREE.StorageBufferAttribute(new Uint32Array(chunks * 2), 2)
   const pick = storage(pickAttr, 'uint', 2).toAtomic() as StorageBufferNode<'uint'>
   const poly = storage(polyAttr, 'vec2', MAX_LASSO_VERTS)
@@ -59,9 +59,7 @@ export function createSelectPipeline(renderer: THREE.WebGPURenderer, buffers: Po
     async pick(x, y, v) {
       const t0 = performance.now()
       setView(v); u.cursor.value.set(x, y)
-      await renderer.computeAsync(kReset)
-      await renderer.computeAsync(kDepth)
-      await renderer.computeAsync(kIndex)
+      await renderer.computeAsync([kReset, kDepth, kIndex])   // one encoder; same-queue order is the only dependency
       const out = new Uint32Array(await renderer.getArrayBufferAsync(pickAttr))
       return { index: out[1] === MISS ? null : out[1], ms: performance.now() - t0 }
     },
@@ -73,7 +71,7 @@ export function createSelectPipeline(renderer: THREE.WebGPURenderer, buffers: Po
       const { gpuMs } = await timedCompute(renderer, kLasso, 'lasso')
       const t0 = performance.now()
       const buf = await renderer.getArrayBufferAsync(buffers.flags)
-      ;(buffers.flags.array as Uint32Array).set(new Uint32Array(buf))      // mirror ← GPU; no needsUpdate (A5)
+      ;(buffers.flags.array as Uint32Array).set(new Uint32Array(buf))      // mirror ← GPU; the GPU already holds it, so no needsUpdate
       return { gpuMs, readbackMs: performance.now() - t0 }
     },
     dispose() { for (const n of [pick, poly, chunkTable, kReset, kDepth, kIndex, kLasso]) n.dispose() },

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { keyAction } from './keys'
 
-const k = (key: string, extra: Partial<{ code: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) =>
-  keyAction({ key, code: extra.code ?? '', metaKey: false, ctrlKey: false, shiftKey: false, ...extra })
+const k = (key: string, extra: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) =>
+  keyAction({ key, metaKey: false, ctrlKey: false, shiftKey: false, ...extra })
 describe('keyAction', () => {
   it('maps editing keys (H stays HUD, X hides)', () => {
     expect(k('l')).toBe('lasso'); expect(k('Escape')).toBe('escape'); expect(k('i')).toBe('isolate'); expect(k('X')).toBe('hide')
