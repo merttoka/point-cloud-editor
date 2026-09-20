@@ -1,0 +1,8 @@
+.bar { position: absolute; left: 8px; bottom: 8px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; background: var(--pcv-card); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); color: var(--pcv-text); }
+.btn { padding: 3px 8px; background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; font: inherit; cursor: pointer; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn[data-active=true] { background: var(--pcv-accent); color: #fff; }
+.select { background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; padding: 2px 4px; font: inherit; }
+.select:disabled { opacity: 0.5; }
+.muted { color: var(--pcv-muted); font: 11px/1.4 var(--pcv-mono); }
+.sep { width: 1px; height: 18px; background: var(--pcv-border); }

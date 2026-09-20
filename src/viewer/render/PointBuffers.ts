@@ -21,6 +21,8 @@ export interface PointBuffers {
   aoNode: StorageBufferNode<'uint'>
   loaded: Uint8Array           // 1 per chunk once uploaded
   uploadRange(offset: number, words: Uint32Array): void
+  flagBytes: Uint8Array        // byte i = point i; view over flags.array.buffer (CPU source of truth for edits)
+  uploadFlagsRange(minIdx: number, maxIdx: number): void   // inclusive point indices → one word-aligned update range
   dispose(): void
 }
 
@@ -35,6 +37,7 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
   const ao = new StorageBufferAttribute(new Uint32Array(flagWords), 1)
   const normalsNode = storage(normals, 'uint', count)
   const aoNode = storage(ao, 'uint', flagWords)
+  const flagBytes = new Uint8Array(flags.array.buffer)
   return {
     count, qpos, flags, normals, ao, qposNode, flagsNode, normalsNode, aoNode,
     loaded: new Uint8Array(chunkCount),
@@ -42,6 +45,12 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
       ;(qpos.array as Uint32Array).set(words, offset * WORDS_PER_POINT)
       qpos.addUpdateRange(offset * WORDS_PER_POINT, words.length)
       qpos.needsUpdate = true
+    },
+    flagBytes,
+    uploadFlagsRange(minIdx, maxIdx) {
+      const w0 = minIdx >> 2, w1 = maxIdx >> 2
+      flags.addUpdateRange(w0, w1 - w0 + 1)
+      flags.needsUpdate = true
     },
     dispose() {
       // Known limitation: Node.dispose() only emits an event, and r3f 9.7 never calls gl.dispose() on a

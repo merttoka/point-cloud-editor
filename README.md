@@ -3,7 +3,9 @@
 Clean-room WebGPU point cloud viewer/editor. 5–20M point LiDAR, WGSL compute, editing, explicit perf numbers.
 
 ## Status
-Phase 4b done: GPU normals (spatial hash, radius PCA) + tangent-plane AO, wrap + fixed-sun shading, normals debug view, CPU benchmark + verify.
+Phase 5 done: click pick + lasso select on the GPU (budget-aware), isolate / hide / delete / unhide, plane split, undo/redo ring, export zip. Phase 4b: GPU normals (spatial hash, radius PCA) + tangent-plane AO, wrap + fixed-sun shading, normals debug view, CPU benchmark + verify.
+
+Editing at 20M (100 % budget, 1277×860, M4 Max): lasso kernel 1.0–1.2 ms GPU (0.07–0.13 ms at 2M), 20 MB flags readback 135–173 ms (4–12 ms at 2M), whole-buffer lasso wall 311–378 ms incl. undo copy + recount; pick 37–146 ms wall (mean 96; 2.1 ms at 2M — the number is queue wait behind 33 ms frames, not kernel cost); hide of 16.8M points 147 ms, delete of 2.6M 124 ms, undo/redo 41–52 ms (CPU pass + 20 MB upload + recount); split 489 ms on a 16.8M-point selection; export of 17.4M points 398 ms → 139.3 MB zip (2M: 1.04M points, 33 ms, 8.3 MB). Frame at home pose 33.2–33.3 ms with 0 or 16.8M points tinted (branchless vertex-stage blend), 19.0 ms with 16.8M hidden (collapsed quads).
 
 2M: 240 fps (vsync) · 20M: 33.7 ms EDL off / 33.0 ms on at 100 % budget, 17.1 / 17.4 ms at 50 % — EDL cost is below the HUD's noise floor (≤ 0.5 ms) (M4 Max, Chromium, DPR 1, size 2 px). Lit / Lit + AO shading (wrap + fixed sun, `sqrt(ao)`) adds nothing measurable: 2M stays at the 4.17 ms vsync floor, 20M at 35 ms in every mode (branchless vertex-stage blend).
 
@@ -69,12 +71,26 @@ npm run dev         # Chrome with WebGPU → http://localhost:5173
 ## Controls
 | Input | Action |
 |---|---|
-| drag / wheel | orbit / zoom (OrbitControls, +Z up) |
+| drag / wheel | orbit / zoom (OrbitControls, +Z up; orbit tool only) |
+| click | pick the nearest rendered point under the cursor (< 4 px pointer travel) → replace selection; miss clears it |
+| `⇧` click / `⌥` click | add / subtract the picked point |
+| `L`, drag | lasso tool: drag a polygon on the SVG overlay (simplified at 2 px; longer strokes decimated to ≤ 256 vertices), release → replace; `⇧` add, `⌥` subtract; double-click or `Esc` → orbit |
+| `I` / `X` / `Delete` | isolate (hide everything else) / hide / delete the selection (or the chosen split side) |
+| `U` / `C` | unhide all / clear selection |
+| `S` | split: RANSAC + PCA plane through the selection, tags sides A / B (toolbar select `all / A / B` scopes the next op) |
+| `⌘Z` / `⇧⌘Z` (`Ctrl` on Linux/Windows) | undo / redo |
 | `F` | refit camera to dataset |
 | `H` | toggle HUD |
 | `\` (hold) | show the key list |
+| toolbar (bottom-left) | Orbit / Lasso, Isolate, Hide, Delete, Unhide all, Clear, Split + side, Undo / Redo, Export; counts `sel · hidden · deleted`, last lasso `gpu / readback ms`, last `pick ms` |
 | panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 2–10 × spacing, default 6×), shading (flat / lit / lit + AO / normals debug), CPU benchmark, verify |
-Keys work only while the viewer has focus (click it first). A centred progress card covers the load; it unmounts on ready.
+Keys work only while the viewer has focus (click it first) and are ignored from the panel's form controls. A centred progress card covers the load; it unmounts on ready.
+
+### Editing
+One flag byte per point (`hidden 1 · selected 2 · deleted 4 · splitA 8 · splitB 16`) lives in the 20 MB `flags` storage buffer the vertex stage already reads; a `Uint8Array` view of the same words is the CPU source of truth. Pick and lasso run as WGSL compute over the rendered prefix of every chunk (the budget slider decides what is pickable), lasso writes flags on the GPU and reads the whole buffer back into the mirror; isolate / hide / delete / split / undo mutate the mirror and upload the touched word range. Hidden and deleted points collapse to zero-size quads; selected points tint with the theme accent (`--pcv-accent`), split sides teal / orange. Undo ring: 30 commands or 256 MB of saved bytes, whichever first — a whole-buffer edit (lasso, isolate, unhide, split, hide/delete) saves N bytes, so ≈13 such edits at 20M; at 2M the 30-command cap binds first; picks save only the selection's index range.
+
+### Export
+Export writes `export.zip` = `manifest.json` + `points.bin` in the same v1 layout the loader reads (one chunk, deleted points dropped, hidden kept, bounds unchanged); compaction and zipping (`fflate`, stored) run in the loader worker. Re-open by unzipping into `public/data/<folder>/` and loading `http://localhost:5173/?data=<folder>` (`[a-z0-9-]+`; default `demo`) — a fresh page load, not an in-place dataset switch.
 
 ## Phase 0 spike results
 Synthetic cloud, Apple M4 Max, Chromium 153 (headless Playwright), DPR 1, size 3 px, Sprite-quad path (4 verts/pt), `requiredLimits.maxStorageBufferBindingSize` = adapter limit. Full notes: `docs/ARCHITECTURE.md`.

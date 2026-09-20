@@ -25,6 +25,22 @@ export interface BenchState {
   verify: VerifyResult | null
 }
 
+export type SelectMode = 'replace' | 'add' | 'subtract'
+export type EditTool = 'orbit' | 'lasso'
+export type SplitSide = 'all' | 'A' | 'B'
+export interface EditState {
+  tool: EditTool
+  busy: boolean
+  counts: { selected: number; hidden: number; deleted: number; split: number }
+  undoDepth: number
+  redoDepth: number
+  splitSide: SplitSide
+  split: { fitted: boolean; inlierRatio: number | null }
+  lasso: { gpuMs: number | null; readbackMs: number; selected: number } | null
+  pickMs: number | null
+  message?: string
+}
+
 export interface ViewerState {
   manifest: Manifest | null
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -39,6 +55,7 @@ export interface ViewerState {
   shading: Shading
   compute: ComputeState
   bench: BenchState
+  edit: EditState
 }
 
 export const initialState: ViewerState = {
@@ -54,6 +71,17 @@ export const initialState: ViewerState = {
   shading: 'flat',
   compute: { status: 'idle', radiusMul: 6, builtRadius: null, timings: [], elapsedMs: null },
   bench: { status: 'idle', progress: 0, n: 0, cpuMs: null, verify: null },
+  edit: {
+    tool: 'orbit',
+    busy: false,
+    counts: { selected: 0, hidden: 0, deleted: 0, split: 0 },
+    undoDepth: 0,
+    redoDepth: 0,
+    splitSide: 'all',
+    split: { fitted: false, inlierRatio: null },
+    lasso: null,
+    pickMs: null,
+  },
 }
 
 export interface Store<T> {

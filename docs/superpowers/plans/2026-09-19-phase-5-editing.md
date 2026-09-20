@@ -365,7 +365,7 @@ describe('ops', () => {
   it('applyPick modes', () => {
     const b = mk(0, S, 0, 0)
     expect(applyPick(b, 3, 'add', { min: 1, max: 1 })).toEqual({ min: 3, max: 3 })
-    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 3 })
+    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 3 })   // bytes 1 and 3 cleared, 0 set
     expect(Array.from(b)).toEqual([S, 0, 0, 0])
     expect(applyPick(b, 0, 'subtract', { min: 0, max: 0 })).toEqual({ min: 0, max: 0 })
     expect(Array.from(b)).toEqual([0, 0, 0, 0])
@@ -383,7 +383,7 @@ describe('ops', () => {
 - [ ] **Step 3: Implement** — `src/viewer/edit/ops.ts`:
 
 ```ts
-import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, type Range } from './flags'
+import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, unionRange, type Range } from './flags'
 import type { SelectMode, SplitSide } from '../state/store'
 
 const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
@@ -415,7 +415,7 @@ export function applyPick(b: Uint8Array, idx: number, mode: SelectMode, selRange
   if (mode === 'subtract') return pass(b, idx, idx, (f) => f & ~SEL_BITS)
   const cleared = mode === 'replace' ? clearSelection(b, selRange) : null
   const set = pass(b, idx, idx, (f) => f | FLAG_SELECTED)
-  return cleared && set ? { min: Math.min(cleared.min, set.min), max: Math.max(cleared.max, set.max) } : cleared ?? set
+  return unionRange(cleared, set)
 }
 
 export const tagSplit = (b: Uint8Array, sideA: (i: number) => boolean) =>
@@ -675,8 +675,8 @@ describe('cpuPick', () => {
     put(0, 30); put(1, 10); put(2, 20)
     const dq: [number, number, number] = [1, 1, 1], mn: [number, number, number] = [0, 0, -40]   // world z = q - 40 → -10, -30, -20
     const vp = persp()
-    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, () => true, () => 3)).toBe(1)
-    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, (i) => i !== 1, () => 3)).toBe(2)
+    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, () => true, () => 3)).toBe(0)      // z = -10 is nearest
+    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, (i) => i !== 0, () => 3)).toBe(2)   // then z = -20
     expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 700, 300, () => true, () => 3)).toBeNull()
     expect(decodeWorld(words, 0, dq, mn)).toEqual([0, 0, -10])
   })
@@ -835,7 +835,7 @@ const manifest: Manifest = {
 function setup() {
   const buffers = createPointBuffers(8, 1)
   const q = buffers.qpos.array as Uint32Array
-  for (let i = 0; i < 8; i++) { const [a, b] = packWords(i * 8000, (i * 3000) % 30000, i % 2 ? 33422 : 32112, 0); q[i * 2] = a; q[i * 2 + 1] = b }
+  for (let i = 0; i < 8; i++) { const [a, b] = packWords(i * 8000, (i * 13000) % 30000, i % 2 ? 33422 : 32112, 0); q[i * 2] = a; q[i * 2 + 1] = b }
   const store = createStore(initialState)
   return { buffers, store, editor: createEditor(buffers, manifest, store) }
 }
@@ -1648,7 +1648,7 @@ describe('export', () => {
     const files = unzipSync(buildZip(r.words, m))
     expect(Object.keys(files).sort()).toEqual(['manifest.json', 'points.bin'])
     expect(files['points.bin'].byteLength).toBe(3 * 8)
-    expect(new Uint32Array(files['points.bin'].buffer, files['points.bin'].byteOffset, 6)).toEqual(r.words)
+    expect(new Uint32Array(files['points.bin'].slice().buffer)).toEqual(r.words)   // slice: unzip views may be unaligned for Uint32Array
     expect(JSON.parse(strFromU8(files['manifest.json'])).pointCount).toBe(3)
   })
 })

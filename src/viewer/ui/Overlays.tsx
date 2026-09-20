@@ -4,8 +4,18 @@ import styles from './Overlays.module.css'
 
 export const KEYS: [string, string][] = [
   ['drag / wheel', 'orbit / zoom'],
+  ['click / ⇧ / ⌥', 'pick point / add / subtract'],
   ['F', 'refit camera to dataset'],
   ['H', 'toggle HUD'],
+  ['L', 'lasso tool (⇧ add, ⌥ subtract)'],
+  ['Esc', 'back to orbit'],
+  ['I', 'isolate selection'],
+  ['X', 'hide selection'],
+  ['Delete', 'delete selection'],
+  ['U', 'unhide all'],
+  ['C', 'clear selection'],
+  ['S', 'split selection by plane'],
+  ['⌘Z / ⇧⌘Z', 'undo / redo'],
   ['\\ (hold)', 'this list'],
 ]
 

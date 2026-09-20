@@ -28,4 +28,12 @@ describe('createPointBuffers', () => {
     expect(b.normalsNode).toBeDefined()
     expect(b.aoNode).toBeDefined()
   })
+  it('flagBytes aliases the flags words little-endian and uploadFlagsRange is word-aligned', () => {
+    const b = createPointBuffers(10, 1)
+    b.flagBytes[5] = 0x82
+    expect((b.flags.array as Uint32Array)[1]).toBe(0x82 << 8)
+    b.uploadFlagsRange(5, 9)          // bytes 5..9 → words 1..2
+    expect(b.flags.updateRanges).toEqual([{ start: 1, count: 2 }])
+    expect(b.flags.version).toBe(1)
+  })
 })

@@ -44,6 +44,12 @@ export function ChunkSprites({ buffers, manifest, handle }: { buffers: PointBuff
   const shading = useStore((s) => s.shading)
   useEffect(() => { handle.setPointSize(pointSize) }, [handle, pointSize])
   useEffect(() => { handle.setShading(shading) }, [handle, shading])
+  // Selection tint follows the theme accent. First viewer root on the page wins when several coexist.
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>('[data-pcv-root]')
+    const accent = el ? getComputedStyle(el).getPropertyValue('--pcv-accent').trim() : ''
+    if (accent) handle.setHighlight({ selected: accent })
+  }, [handle])
   useEffect(() => {
     handle.setMode(colorMode)
     handle.setLut(colorMode === 'class' ? 'class' : colormap)

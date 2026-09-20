@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu'
 import type { Node } from 'three/webgpu'
 import { abs, clamp, dot, float, instanceIndex, max, mix, normalize, positionView, select, step, texture, transformNormalToView, uniform, uint, userData, vec2, vec3, vertexStage } from 'three/tsl'
 import type { PointBuffers } from './PointBuffers'
-import { FLAG_HIDDEN, FLAG_DELETED } from './PointBuffers'
+import { FLAG_HIDDEN, FLAG_DELETED, FLAG_SELECTED, FLAG_SPLIT_A, FLAG_SPLIT_B } from './PointBuffers'
 import { centroidOf, type Manifest } from '../loader/manifest'
 import { dequantScale, QMAX } from '../format/quant'
 import { makeLutTexture, type LutKind } from './colormaps'
@@ -15,6 +15,7 @@ export interface PointMaterialHandle {
   setPointSize(px: number): void
   setRefDist(d: number): void
   setShading(mode: Shading): void
+  setHighlight(c: { selected?: string; splitA?: string; splitB?: string }): void   // CSS hex strings
   dispose(): void
 }
 
@@ -51,6 +52,10 @@ export function createPointMaterial(
   const byteOf = (words: PointBuffers['flagsNode']) => words.element(gi.shiftRight(uint(2))).shiftRight(gi.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))
   const fbyte = byteOf(buffers.flagsNode)
   const collapsed = fbyte.bitAnd(uint(FLAG_HIDDEN | FLAG_DELETED)).notEqual(uint(0))
+  const bitF = (bit: number) => float(fbyte.bitAnd(uint(bit))).div(bit)                   // 0 or 1, branchless
+  const tint = vertexStage(vec3(bitF(FLAG_SELECTED), bitF(FLAG_SPLIT_A), bitF(FLAG_SPLIT_B)))
+  // uniform(Color) is linear; new Color('#hex') decodes sRGB under the default ColorManagement, matching the LUT path.
+  const cSel = uniform(new THREE.Color('#bf1656')), cA = uniform(new THREE.Color('#2ec4b6')), cB = uniform(new THREE.Color('#ff9f1c'))
 
   // Oct-decoded normal and AO byte (compute outputs), vertex-stage reads like qpos/flags.
   const nw = buffers.normalsNode.element(gi)
@@ -95,7 +100,9 @@ export function createPointMaterial(
     return tex
   }
   const lutNode = texture(lutFor(init.colorMode === 'class' ? 'class' : init.colormap), vec2(vertexStage(t), 0.5))
-  material.colorNode = mix(lutNode.mul(vertexStage(light)), vertexStage(abs(normalObj)), debugNormals)
+  const base = mix(lutNode.mul(vertexStage(light)), vertexStage(abs(normalObj)), debugNormals)
+  const highlighted = mix(mix(mix(base, cSel, tint.x.mul(0.7)), cA, tint.y), cB, tint.z)
+  material.colorNode = highlighted
 
   return {
     material,
@@ -104,6 +111,7 @@ export function createPointMaterial(
     setPointSize: (px) => { pointSize.value = px },
     setRefDist: (d) => { refDist.value = d },
     setShading: (m) => { shading.value = SHADING[m] },
+    setHighlight: (c) => { if (c.selected) cSel.value.set(c.selected); if (c.splitA) cA.value.set(c.splitA); if (c.splitB) cB.value.set(c.splitB) },
     dispose: () => { luts.forEach((t) => t.dispose()); material.dispose() },
   }
 }
