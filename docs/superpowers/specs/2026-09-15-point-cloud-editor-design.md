@@ -121,7 +121,7 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 2. **viewer** — streaming, orbit, budget slider, point size, colormaps, flags buffer. **Done.**
 3. **edl** — post pass, params, toggle. **Done.**
 4. **compute** — hash, normals, AO, timing panel, CPU benchmark + verify. **Done.**
-5. **editing** — click/lasso select, ops, split, undo, export zip.
+5. **editing** — click/lasso select, ops, split, undo, export zip. **Done.**
 6. **perf-docs** — HUD numbers, README table, screenshots/webm, ARCHITECTURE, portfolio blurb.
 
 ## Amendments (phase 1–6 brainstorm, 2026-09-15)

@@ -88,3 +88,7 @@ Message to the loader worker: `{ type: 'export', words: qpos.array.slice(), flag
 ## Docs
 
 README: editing controls, shortcut table, export format note. ARCHITECTURE: editing/undo model, pick + lasso kernels, flags sync path, export pipeline.
+
+## Plan rulings
+
+Shipped behaviour follows the rulings table in `docs/superpowers/plans/2026-09-19-phase-5-editing.md` § "Rulings on the spec-review items (Phase 5 §1–10) and further drift" where it differs from this spec (notably: `H` stays HUD and `X` = hide; budget-visible selection via `chunkTable`; click modes plain / ⇧ / ⌥; re-open is a fresh `?data=<name>` page load; `busy` serialisation; `selRange`-scoped picks; readback copies into the mirror without `needsUpdate`). Measured numbers and deferred items: `docs/ARCHITECTURE.md` § Editing (phase 5).

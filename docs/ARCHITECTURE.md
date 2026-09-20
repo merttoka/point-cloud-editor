@@ -9,10 +9,10 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - `check_hosting.py` acceptance "passes on both bins" and Phase 2 "full set streams with 206 from the release URL" are unmet by design (same-origin only; Range path covered by mocked-fetch vitests and Vite's 206 responses).
 
 **Renderer / GPU lifetime**
-- r3f 9.7 never calls `gl.dispose()` on a `WebGPURenderer` at `<Canvas>` unmount; renderer + `qpos`/`flags` buffers live until page unload (see "GPU lifetime"). Owner: whichever phase adds remount/dataset switching (Phase 5 export re-open is the first candidate). Phase 4 adds ~214 MB of compute buffers to the same leak.
+- r3f 9.7 never calls `gl.dispose()` on a `WebGPURenderer` at `<Canvas>` unmount; renderer + `qpos`/`flags` buffers live until page unload (see "GPU lifetime"). Owner: any (whichever phase adds remount/dataset switching; Phase 5 export re-open is a fresh page load by ruling 7, so it does not exercise this). Phase 4 adds ~214 MB of compute buffers to the same leak.
 - `RenderPipeline` + its pass target (Phase 3) join the renderer leak: `PostHandle.dispose()` disposes both on `<PostPass>` unmount, but the renderer itself is never disposed, so in practice neither ever runs today (no unmount path in the app). Owner: same as above.
 - `DatasetLimitCheck` reads `renderer.backend.device.limits` — a second backend read beyond the `compatibilityMode` one the spec allows. Replace with `renderer.getDevice?.()`/adapter limits captured in the factory if three exposes one. Owner: any.
-- `<Scene>` has no `key={manifestUrl}`; the cached renderer + `DatasetLimitCheck` handle a manifest swap, but sprites/material are rebuilt through `loaded` identity only. Owner: Phase 5 (export re-open).
+- `<Scene>` has no `key={manifestUrl}`; the cached renderer + `DatasetLimitCheck` handle a manifest swap, but sprites/material are rebuilt through `loaded` identity only. Owner: any (export re-open is a fresh page load).
 
 **Loader**
 - After ≥1 chunk uploaded, a worker `error` leaves `status` at `'loading'` forever (only `error` text is set; the loading card gates on `!error` as well, so it hides). Owner: any UI that needs a real terminal state.
@@ -22,7 +22,6 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 
 **Viewer UI**
 - `id="hud"` on the viewer root child duplicates with several viewers on one page; the Playwright checks read `#hud`. Switch to `data-pcv-hud` + a bench handle in Phase 6.
-- `H` toggles the HUD (Phase 2) but the Phase 5 spec assigns `H` = hide — see the spec review.
 - No unit tests for `Panel`, `useLoader`; `ASPRS_FALLBACK` is named in the Phase 2 Interfaces but the code uses `ASPRS_COLORS[-1]`.
 - `dpr?: number` on `PointCloudViewer` (Phase 3, `?dpr=` on the dev harness, clamped `[0.5, 4]`) exists to drive perf-row measurement (DPR 2 numbers below) without editing source; not exercised as a public embedding API beyond that.
 
@@ -38,6 +37,18 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - StrictMode mounts `<ComputeRunner>` twice; the first pipeline's hash buffers linger until unload in DEV only (same `dispose()` limitation).
 - CPU bench pins the loader worker (~11 s at 2M, 14.5 s for the 20M subsample); a `dispose` during a bench terminates the worker and the pending promise resolves `null`.
 - Panel "Benchmark (CPU, N pts)" title shows `min(total, BENCH_CAP)` = 2,000,000 on the full set while the actual subsample is 1,999,872 (256 × floor(2M/256)); the table row uses the real `bench.n`.
+
+**Editing (Phase 5)**
+- 20M lasso readback (`getArrayBufferAsync(flags)`, 20 MB) measures 135–175 ms, above the spec's 100 ms fallback trigger. The partial-range fallback (`getArrayBufferAsync(attr, null, offset, count)` over the polygon's visible index range) is unsound for replace mode — the kernel clears `selected`/split bits over the whole buffer — so the full readback stays; a bbox-limited add/subtract path would still need the whole-buffer clear on replace. Owner: any.
+- `pick.ms` (HUD/toolbar `pick ms`) is wall time from `resetPick` submit to the 8-byte readback, so at 20M it is 15–146 ms of queue wait behind in-flight 33 ms render frames plus two 20M-thread passes, not kernel cost (2.1 ms at 2M). A `timedCompute` variant would isolate the GPU part. Owner: Phase 6 perf tooling.
+- `pickDepth` / `pickIndex` share 12 duplicated WGSL lines (guards, decode, project, radius, distance); only the last statement differs. Owner: any.
+- `Scene ↔ EditRunner` import cycle: `EditRunner` imports `homePose` from `Scene.tsx`, which mounts `<EditRunner>`; `homePose` is called at pick time only (same pattern as `useLoader`), harmless under Vite/ESM but a lint trap. Move `homePose` to `render/camera.ts`. Owner: any.
+- Undoing a `split` restores the flag bytes but leaves `edit.split.fitted = true` / `inlierRatio` and the chosen `splitSide` (verified at 20M: after undo the store still reads `fitted: true, inlierRatio 0.053`), so a following side-A op runs against an empty set. `undo()`/`redo()` should reset `edit.split` (or rederive `fitted` from the bytes). Owner: any.
+- `editor.split()`'s `selectedPositions` is a full-N scan over the mirror plus a JS `number[]` of selected indices and a `Float32Array` of their positions before the 50k sample is drawn — 489 ms wall for a 16.8M-point selection at 20M (the fit itself is 200 RANSAC iterations on 50k points). A reservoir sample in the scan loop would drop the arrays. Owner: any.
+- The toolbar (bottom-left) overlaps the Panel's bottom rows (HUD checkbox) below ≈ 860 px viewport height. Owner: Phase 6 (Lab embed layout).
+- `ChunkSprites` reads `--pcv-accent` from `document.querySelector('[data-pcv-root]')` — the first viewer on the page; a second viewer with another theme gets the first one's accent. Owner: any multi-viewer page.
+- 20M export peak worker memory is unverified: the worker holds the transferred `qpos` (160 MB) + flags (20 MB) copies, the compacted output (≤ 160 MB) and the zip (same size, stored), ≈ 3 × 160 MB transiently; measured only as wall time (398 ms for 17.4M points). Owner: any.
+- The DEV handle (`__pcvEdit.api.exportZip`) can export while `status === 'loading'` and would zip zeros for chunks not yet uploaded; the toolbar gates Export on `ready`. Owner: any.
 
 **Tools (Phase 1)**
 - `check_hosting.walk()` has only a DNS-failure test (no local-http-server redirect test); `evaluate([])` raises; hop-cap exhaustion is silent.
@@ -102,6 +113,10 @@ Keyboard shortcuts (`F` refit, `H` toggle HUD, `\` held = key list) are bound vi
 | normals (Phase 4, at load) | 80 MB (`N×4` B, oct u16×2) | 80 MB (zero-filled `Uint32Array` backing the attribute) |
 | ao (Phase 4, at load) | 20 MB (`ceil(N/4)×4` B) | 20 MB |
 | hash (Phase 4, at first build) | 113.6 MB (`cellStart` 16.8 + `cellCursor` 16.8 + `blockSums` 0.07 + `sorted` 80) | same (attribute backing arrays) |
+| `pick` (Phase 5) | 8 B (`atomic<u32>[2]`: depth bits, index) | 8 B |
+| `polygon` (Phase 5) | 2 KB (`vec2<f32>[256]`) | 2 KB |
+| `chunkTable` (Phase 5) | 2 KB (`vec2<u32>[256]`: offset, visible end) | 2 KB |
+| undo ring (Phase 5) | — | ≤ 256 MB (30 commands; a whole-buffer edit saves N = 20 MB) |
 
 Computed storage total after a 20M build ≈ 394 MB. No other persistent per-point CPU copy: the loader worker transfers each chunk's buffer out and keeps nothing (the CPU bench's subsample copy lives only for the run).
 
@@ -292,6 +307,66 @@ Same algorithms in TS over typed arrays (`decodePositions` + `buildGrid`, `compu
 - CPU at 6× vs kNN at 3×: 2M normals 5.8 → 6.6–7.8 s, ao 4.7 → 6.1–6.4 s (≈4× the neighbours per point, no cap). The 20M subsample is *faster* than the demo (4.6 / 4.1 s): a 1-in-10 chunk prefix has a tenth of the full density at the same 1.34 m radius, so far fewer neighbours per point — the same reason Verify can't run on it.
 - Screenshots (`.playwright-mcp/`): pre-4b `shading-flat.png`, `shading-lit.png`, `shading-litao.png`, `shading-litao-close.png` (2M, EDL off close-up: facets from compute shading alone, no 16×16 chunk-grid seams), `shading-litao-20m.png` (20M, Lit + AO, EDL on, HUD `36.07 ms 28 fps draws 257 tris 40000001`, panel table visible); 4b `4b-normals-before.png` / `4b-litao-before.png` (`K = 16` baseline), `4b-normals-pca.png` / `4b-litao-pca.png` (radius PCA, 3×), `4b-litao-x6.png` / `4b-lit-x6.png` / `4b-litao-x6-close.png` (radius PCA, 6× default, wrap + sun shading).
 - Panel: Compute group (radius slider `2–10×` step 0.5 with the metre readout, default 6×, Build button → "Building…"/"Built", timing table submit/gpu per pass + total + wall, Shading select flat / lit / lit + AO / normals (debug), the last three disabled until built; Build re-enables when the radius moves — ruling 5); Benchmark group (Run CPU / Cancel with progress %, GPU-vs-CPU ms table labelled `(all)`/`(cap)` when the bench ran on a subsample, Verify button gated on built + `N ≤ 2M`, summary line).
+
+## Editing (phase 5)
+
+Machine/session as above (M4 Max, Chromium via Playwright MCP, DPR 1, size 2 px, 1277×860 canvas, home pose). Click pick and lasso select as WGSL compute over the rendered prefix of every chunk, CPU ops on a byte mirror of the flags buffer, RANSAC/PCA plane split, an undo ring of byte slices, and a worker-side export to the v1 zip layout. Plan and rulings: `docs/superpowers/plans/2026-09-19-phase-5-editing.md` § "Rulings on the spec-review items" (rulings 1–20 cited by number below).
+
+### Flags mirror and upload path (`render/PointBuffers.ts`, `edit/flags.ts`)
+
+`flagBytes = new Uint8Array(flags.array.buffer)` — byte *i* is point *i*, the same little-endian byte the vertex stage unpacks (`byteOf(flagsNode)` = `word >> ((i & 3) × 8) & 0xff`; `flags.test.ts` checks `wordOf` against that packing). Bits: `HIDDEN 1 · SELECTED 2 · DELETED 4 · SPLIT_A 8 · SPLIT_B 16`. `uploadFlagsRange(minIdx, maxIdx)` = `flags.addUpdateRange(minIdx >> 2, (maxIdx >> 2) − (minIdx >> 2) + 1)` + `needsUpdate` (ruling 1) — one word-aligned range per edit; three coalesces the ranges before the next frame's upload. Two directions of sync: CPU ops mutate the mirror and upload; the lasso kernel mutates the GPU buffer and the pipeline copies the readback into the mirror with `flags.array.set(new Uint32Array(buf))` and **no** `needsUpdate` (ruling 9 — the GPU already holds it). If the readback rejects after the kernel ran, `EditRunner` re-uploads the whole mirror so the mirror stays the source of truth.
+
+### Kernels (`compute/wgsl/select.ts`, `edit/selectPipeline.ts`)
+
+Shared prologue `selectHelpers`: `pcvProject` (world = `q × dqScale + (bounds.min − centroid)`, the material's frame; clip = `viewProj × world`; screen px from the CSS viewport, WebGPU `[0, 1]` depth), `pcvVisibleEnd` (binary search of `chunkTable[c] = (offset, offset + ceil(count × budget))`, 256 entries rewritten before every dispatch — ruling 11: only *rendered* points are pickable/selectable, so the budget slider can't edit invisible points), `pcvInPoly` (even-odd crossing test, same rule as `edit/project.ts`). All kernels take `viewProj`/`view` as `mat4x4<f32>` parameters (the spike's vec4-column fallback wasn't needed), forward `ptr<storage, array<…>, read_write>` into the helpers (not inlined), and use raw `atomicMin`/`atomicStore` (no `atomicFunc` wrapper) — all three compiled first try on Metal.
+
+- **Pick** = three dispatches + one 8-byte readback: `resetPick` (`atomicStore` 0xffffffff into `pick[0..1]`, `.compute(2, [1])`, ruling 15 — no CPU upload path to trust) → `pickDepth` (thread per point: skip `i ≥ visibleEnd`, hidden/deleted, behind the camera or outside `[0, 1]` depth; radius `r = max(3, clamp(pointSize × refDist / −viewZ, 1, 8))` px, the material's attenuated size (ruling 3, `refDist = homePose(manifest, fov).dist`); `atomicMin(&pick[0], bitcast<u32>(depth))` — depth is a non-negative f32 so its bits order like the value) → `pickIndex` (same expression, bit-identical depth; `atomicMin(&pick[1], i)` where `bitcast<u32>(depth) == pick[0]`, so ties resolve to the lowest index). `getArrayBufferAsync(pickAttr)` → `index` (`0xffffffff` = miss). GPU vs the CPU reference (`edit/project.ts`, identical matrices via the DEV `api.viewParams`) over 20 cursors at 2M: **18/20 exact-index agreement, 20/20** under "CPU depth of the GPU pick ≤ CPU best + 1e-6 and within r + 0.5 px" — the two exact misses are f32 depth ties (Δ 1.1e-9 / 2.8e-8 in f64, below the f32 ULP near 1.0 ≈ 6e-8), no systematic offset. At budget 0.5 the centre pick lands inside its chunk's rendered prefix.
+- **Lasso** = `lassoSelect`, thread per **word** (`ceil(N/4)` threads, ruling: flags writes are thread-per-word): read the word once, test its four points (visible-prefix, not hidden/deleted, in front, inside the polygon's bbox, then `pcvInPoly` against `poly: vec2<f32>[256]` — `MAX_LASSO_VERTS`, the overlay simplifies at 2 px), write it back once. Modes: replace clears `SELECTED | SPLIT_A | SPLIT_B` on every byte then sets inside; add ORs; subtract clears inside, and any byte that loses `SELECTED` loses its split tags too. Timed with `timedCompute` (ruling 13) then a full-buffer readback into the mirror.
+
+### Tint (`render/pointMaterial.ts`)
+
+Three weights from the flag byte, `float(fbyte & bit) / bit` (0 or 1, no `select`), packed in one `vertexStage(vec3(sel, a, b))`; `colorNode = mix(mix(mix(base, cSel, sel × 0.7), cA, a), cB, b)` — branchless, so the three storage reads and the blend evaluate once per vertex (Phase 0 rule). `cSel` defaults to `#bf1656` and is overwritten from `--pcv-accent` on the nearest `[data-pcv-root]` (`ChunkSprites` effect, `handle.setHighlight({ selected })`), so the light theme's accent reaches the shader without a prop; `cA = #2ec4b6`, `cB = #ff9f1c`. Hidden/deleted still collapse the quad (`sizeNode = 0`) and are skipped by every kernel.
+
+### Editor, ops, undo (`edit/editor.ts`, `edit/ops.ts`, `edit/undo.ts`)
+
+`createEditor(buffers, manifest, store)` wraps every CPU op in `run(pushRange, op)`: busy guard → `undo.push(min, max)` (**push before mutate**: the slice is copied from the live mirror) → `op()` returns the touched range or `null` → `dropLast()` on `null` (a no-op edit leaves no undo entry) → `uploadFlagsRange` → `refresh()` (`countFlags`, `selectionRange`, depths → `store.edit`). Whole-buffer ops (`isolate`, `hide`, `del`, `unhideAll`, `tagSplit`) push `(0, N−1)`; `pick` and `clearSelection` push `selRange ∪ {idx}` where `selRange` is the `[min, max]` index span of the current selection tracked after every edit (ruling 19), so a pick-replace uploads and saves only that span. Op semantics: the *subject* of isolate/hide/delete is `SELECTED` ∧ (`splitSide === 'all'` ∨ the side bit); `isolate` hides every non-subject, non-deleted point (selection kept); `hide`/`del` clear the selection bits on the subject and set `HIDDEN`/`DELETED`. GPU selects go through `beginGpuEdit()` (push `(0, N−1)`, `busy = true`) / `endGpuEdit()` (`busy = false`, refresh) — `busy` serialises everything (ruling 17): ops, undo/redo, new picks/lassos and export are ignored while a GPU select or an export is in flight. Undo ring: dense byte slices, `MAX_COMMANDS 30`, `MAX_BYTES 256 MB`, evicting the oldest on either cap; undo/redo swap the slice with the live bytes and upload the range, so a command costs the same on either stack. A whole-buffer edit costs N bytes: ≈ 12 fit at 20M, 128 at 2M.
+
+### Plane split (`edit/plane.ts`)
+
+`split()` collects the selected points' bounds-relative positions (`selectedPositions`, a full-N scan — see Deferred), draws a `samplePoints` stride sample of ≤ 50,000, and fits RANSAC (200 three-point hypotheses, seeded `mulberry32`, inlier threshold = 2 × `spacingOf(bounds, pointCount)` — 1.41 m demo, 0.45 m full) refined by PCA on the inliers (`smallestEigenvector` from `compute/cpu/normals.ts`, ruling 14 — no second Jacobi; the RANSAC normal's orientation is kept so A/B are stable). `tagSplit` then tags every selected point `SPLIT_A` (signed distance ≥ 0) or `SPLIT_B` over the full buffer; `edit.split = { fitted, inlierRatio }`, the toolbar's side select scopes the next op. Fewer than 3 points or a degenerate fit sets `edit.message`. Test data note: the planned 8-point fixture was collinear in xy (y = 0.375 x), so PCA's smallest axis was in-plane; the shipped test uses a y stride of 13,000.
+
+### Export (`edit/export.ts`, `loader/loader.worker.ts`, `loader/useLoader.ts`)
+
+`api.exportZip()` (busy-gated) slices `qpos.array` and `flagBytes` and transfers both to the loader worker (`export` on `LoaderIn`, ruling 8; 160 + 20 MB at 20M). The worker runs `compactPoints` (two-pass, preallocated: drops `DELETED` only, keeps hidden, preserves order, tracks the quantized min/max), `exportManifest` (version 1, `name (export)`, `source#export`, same bounds/crs/license/classMap, **one chunk** with dequantized bounds) and `buildZip` (`fflate.zipSync`, `points.bin` stored at level 0 + `manifest.json`), transfers the zip back (`exportDone`) and releases its inputs (A6). Main thread: Blob → `<a download="export.zip">`, `busy = false`, `message = exported N points`; `exportError`, a `postMessage` throw and a worker teardown mid-export all clear `busy`. Re-open is a fresh page load (ruling 7): unzip into `public/data/<name>/`, `?data=<name>` (`[a-z0-9-]+`). Verified at 2M: 962,730 deleted → `count 1,037,270`, `points.bin` = 1,037,270 × 8 B, 8,299,088-byte zip, 33.4 ms busy span; re-opened as `?data=export` at 1,037,270/1,037,270, 1/1 chunks, the deleted rectangle visibly cut out. At 20M (2,585,049 deleted): `count 17,414,951`, `points.bin` 139,319,608 B = 17,414,951 × 8, zip **139,320,509 B**, **398 ms** busy span; `unzip -l` + manifest `pointCount 17414951`, 1 chunk (not re-opened at 20M).
+
+### UI (`ui/Toolbar.tsx`, `ui/LassoOverlay.tsx`, `ui/keys.ts`)
+
+`keyAction()` is a pure map (ruling 2: `L Esc I X Delete/Backspace U C S`, `⌘/Ctrl+Z`, `⇧⌘Z`; `F`/`H` unchanged, `H` stays HUD) on the root's `onKeyDown` (ruling 10, no `activeElement` check) — it bails on modified letters so browser shortcuts pass through and returns early for `SELECT`/`INPUT` targets so the panel's controls don't fire ops. Click pick = `pointerdown` → `pointerup` on the root with < 4 px travel, primary button only; plain = replace (a miss clears the selection), `⇧` = add, `⌥` = subtract (ruling 16, same modes as the lasso). `LassoOverlay` is an SVG sibling of `<Scene>` (`inset: 0`, and explicit `width/height: 100 %` — an `<svg>` is a replaced element and sat at 300×150 without it), mounted only in lasso mode with pointer capture; `EditRunner` sets `controls.enabled = tool === 'orbit'` (ruling 6). `<Canvas>` is pinned `position: absolute; inset: 0` so the r3f wrapper and the overlay share the root box. Toolbar buttons `preventDefault` on mousedown so the root keeps focus; the split-side `<select>` takes focus normally. Two React bugs found in the browser: reading `e.currentTarget` inside a `setState` updater (nulled by then → unmounted the viewer), and the SVG sizing above.
+
+### Measured
+
+Budget 100 %, 1277×860, home pose, console 0 errors throughout (the three benign three.js warnings only). 2M numbers from the implementation tasks; 20M from one session on the full set after `20,000,000/20,000,000` (`?data=full`).
+
+| op | 2M | 20M |
+|---|---|---|
+| pick, wall (`edit.pickMs`, 5 cursors) | 2.12 mean (7.2 first incl. compile; 3.6–4.9 via the click path) | 36.7 / 90.4 / 102.9 / 103.0 / 145.9 (mean 95.8; Task 6 session 15–144) |
+| lasso replace, 30–70 % square: gpu / readback / selected | 0.131 / 12.3 ms / 1,725,277 (`cpuLasso` exact match) | 1.11 / 139.8 ms / 16,772,354 (Task 6 session: 1.11–1.18 / 137–175 / 17,253,695) |
+| lasso add, 50–90 % square | 0.066 / 6.8 ms / 1,840,478 | 7.21 (first after a frame; 0.98 on repeat) / 166.8 ms / 18,150,830 |
+| lasso subtract, 30–70 % square | 0.131 / 6.4 ms / 115,201 (= add − replace) | 1.11 / 173.2 ms / 1,378,476 (= 18,150,830 − 16,772,354) |
+| lasso wall (`api.lasso` → `busy` false: undo copy + kernel + readback + `countFlags` + `selectionRange`) | — | 311–378 ms |
+| `hide()` on the selection (CPU pass + 20 MB upload + recount) | — | 146.9 ms (16,772,354 hidden) |
+| `del()` on a 2,585,049-point selection | — | 123.8 ms |
+| `undo()` / `redo()` of a whole-buffer op | — | 51.1 / 41.5 / 51.7 / 50.6 ms |
+| `unhideAll()` with nothing hidden (full pass, `dropLast`) | — | 100.9 ms |
+| `split()` on the selection | `fitted true, inlierRatio 0.147` (1,676,881 pts) | 489 ms (16,772,354 pts → A 5,916,458 / B 10,855,896, `inlierRatio 0.053`) |
+| export (busy span) / zip | 1,037,270 pts, 33.4 ms, 8,299,088 B | 17,414,951 pts, 398 ms, 139,320,509 B |
+| frame ms at home pose: no edits / 16.8M selected (tint) / 16.8M split-tagged / 16.8M hidden / 2.6M deleted | 4.17 (vsync floor) in every state | 33.30 / 33.19 / 33.20 / 18.96 / 30.12 |
+
+- The lasso kernel is 1.0–1.2 ms at 20M (thread per word, 5M threads) — the 20 MB readback (135–175 ms) and the CPU bookkeeping (undo copy 20 MB, `countFlags` + `selectionRange` ≈ 2 × 20M-byte passes) are the cost; see Deferred for why the partial-readback fallback was not taken.
+- `pickMs` is wall time including queued render frames; the two 20M-thread passes plus reset are not timestamp-queried. At 2M (4 ms frames) it reads 2–5 ms.
+- The tint adds no measurable frame cost (33.2–33.3 ms with 0 or 16.8M points tinted); hiding 16.8M points drops the frame to 19 ms because collapsed quads rasterise nothing.
+- Undo of a `split` leaves `edit.split` stale (Deferred).
+- Screenshots (`.playwright-mcp/`, 2M): `task5-1-selected-tint.png` / `task5-2-hidden.png` / `task5-3-undo.png` (tint, hide, undo round-trip), `task-6-lasso-2m.png`, `p5-pick.png`, `p5-lasso-drawing.png` (SVG polygon, accent stroke, dashed), `p5-lasso.png`, `p5-split.png` (teal/orange sides), `p5-isolate.png`, `p5-export.png` (re-opened export with the deleted rectangle cut out).
 
 ## Phase 0 spike findings (three 0.186.0)
 
