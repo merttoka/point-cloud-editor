@@ -365,7 +365,7 @@ describe('ops', () => {
   it('applyPick modes', () => {
     const b = mk(0, S, 0, 0)
     expect(applyPick(b, 3, 'add', { min: 1, max: 1 })).toEqual({ min: 3, max: 3 })
-    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 3 })
+    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 1 })   // only bytes 0..1 actually changed
     expect(Array.from(b)).toEqual([S, 0, 0, 0])
     expect(applyPick(b, 0, 'subtract', { min: 0, max: 0 })).toEqual({ min: 0, max: 0 })
     expect(Array.from(b)).toEqual([0, 0, 0, 0])
@@ -675,8 +675,8 @@ describe('cpuPick', () => {
     put(0, 30); put(1, 10); put(2, 20)
     const dq: [number, number, number] = [1, 1, 1], mn: [number, number, number] = [0, 0, -40]   // world z = q - 40 → -10, -30, -20
     const vp = persp()
-    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, () => true, () => 3)).toBe(1)
-    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, (i) => i !== 1, () => 3)).toBe(2)
+    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, () => true, () => 3)).toBe(0)      // z = -10 is nearest
+    expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 400, 300, (i) => i !== 0, () => 3)).toBe(2)   // then z = -20
     expect(cpuPick(words, 3, dq, mn, vp, 800, 600, 700, 300, () => true, () => 3)).toBeNull()
     expect(decodeWorld(words, 0, dq, mn)).toEqual([0, 0, -10])
   })
@@ -1648,7 +1648,7 @@ describe('export', () => {
     const files = unzipSync(buildZip(r.words, m))
     expect(Object.keys(files).sort()).toEqual(['manifest.json', 'points.bin'])
     expect(files['points.bin'].byteLength).toBe(3 * 8)
-    expect(new Uint32Array(files['points.bin'].buffer, files['points.bin'].byteOffset, 6)).toEqual(r.words)
+    expect(new Uint32Array(files['points.bin'].slice().buffer)).toEqual(r.words)   // slice: unzip views may be unaligned for Uint32Array
     expect(JSON.parse(strFromU8(files['manifest.json'])).pointCount).toBe(3)
   })
 })
