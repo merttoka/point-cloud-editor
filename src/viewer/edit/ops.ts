@@ -1,4 +1,4 @@
-import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, type Range } from './flags'
+import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, type Range, unionRange } from './flags'
 import type { SelectMode, SplitSide } from '../state/store'
 
 const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
@@ -30,7 +30,7 @@ export function applyPick(b: Uint8Array, idx: number, mode: SelectMode, selRange
   if (mode === 'subtract') return pass(b, idx, idx, (f) => f & ~SEL_BITS)
   const cleared = mode === 'replace' ? clearSelection(b, selRange) : null
   const set = pass(b, idx, idx, (f) => f | FLAG_SELECTED)
-  return cleared && set ? { min: set.min, max: Math.max(set.max, cleared.min) } : cleared ?? set
+  return cleared && set ? unionRange(cleared, set) : cleared ?? set
 }
 
 export const tagSplit = (b: Uint8Array, sideA: (i: number) => boolean) =>

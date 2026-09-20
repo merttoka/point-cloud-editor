@@ -29,7 +29,7 @@ describe('ops', () => {
   it('applyPick modes', () => {
     const b = mk(0, S, 0, 0)
     expect(applyPick(b, 3, 'add', { min: 1, max: 1 })).toEqual({ min: 3, max: 3 })
-    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 1 })   // only bytes 0..1 actually changed
+    expect(applyPick(b, 0, 'replace', { min: 1, max: 3 })).toEqual({ min: 0, max: 3 })   // bytes 1 and 3 cleared, 0 set
     expect(Array.from(b)).toEqual([S, 0, 0, 0])
     expect(applyPick(b, 0, 'subtract', { min: 0, max: 0 })).toEqual({ min: 0, max: 0 })
     expect(Array.from(b)).toEqual([0, 0, 0, 0])
