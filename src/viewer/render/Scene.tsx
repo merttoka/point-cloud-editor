@@ -13,6 +13,11 @@ import { Hud } from '../ui/Hud'
 import { PostPass } from './PostPass'
 import { ComputeRunner } from '../compute/ComputeRunner'
 import type { ComputePipeline } from '../compute/pipeline'
+import { EditRunner } from '../edit/EditRunner'
+import type { Editor } from '../edit/editor'
+import type { ViewParams } from '../edit/selectPipeline'
+import type { Poly } from '../edit/lasso'
+import type { SelectMode } from '../state/store'
 
 export interface ViewerApi {
   fit: () => void
@@ -21,6 +26,12 @@ export interface ViewerApi {
   readback?: ComputePipeline['readback']
   cpuBench?: (radius: number) => Promise<{ normals: Uint32Array; ao: Uint8Array; n: number } | null>   // null = cancelled
   cancelBench?: () => void
+  pick?: (x: number, y: number, mode: SelectMode) => Promise<void>       // GPU pick at CSS px → editor.pick, edit.pickMs
+  lasso?: (poly: Poly, mode: SelectMode) => Promise<void>                // GPU lasso at CSS px → flags mirror, edit.lasso
+  viewSize?: () => { width: number; height: number }
+  viewParams?: () => ViewParams                                           // DEV: the matrices the GPU kernels used (CPU reference)
+  cpuPick?: (x: number, y: number) => number | null                      // DEV reference (useLoader)
+  cpuLasso?: (poly: Poly) => Uint32Array                                 // DEV reference (useLoader)
 }
 
 const HOME_FOV = 50
@@ -113,8 +124,8 @@ function DatasetLimitCheck({ buffers }: { buffers: PointBuffers }) {
   return null
 }
 
-export function Scene({ buffers, manifest, handle, api, hudEl, dpr }: {
-  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>; dpr?: number
+export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr }: {
+  buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; editor: Editor; api: ViewerApi; hudEl: RefObject<HTMLDivElement | null>; dpr?: number
 }) {
   const store = useViewerStore()
   const camera = useMemo(() => {
@@ -145,6 +156,7 @@ export function Scene({ buffers, manifest, handle, api, hudEl, dpr }: {
       <Hud el={hudEl} />
       <PostPass />
       <ComputeRunner buffers={buffers} manifest={manifest} api={api} />
+      <EditRunner buffers={buffers} manifest={manifest} editor={editor} api={api} />
     </Canvas>
   )
 }

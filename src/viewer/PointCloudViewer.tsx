@@ -52,7 +52,7 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
       {showKeys && <KeysOverlay />}
       {message === null && status !== 'ready' && !error && <LoadingOverlay />}
       {message !== null ? <div className={styles.message}>{message}</div>
-        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} api={api} hudEl={hudEl} dpr={dpr} />}
+        : loaded && <Scene buffers={loaded.buffers} manifest={loaded.manifest} handle={loaded.handle} editor={loaded.editor} api={api} hudEl={hudEl} dpr={dpr} />}
     </div>
   )
 }
