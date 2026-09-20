@@ -33,6 +33,11 @@ describe('fitPlane', () => {
   it('returns null below 3 points', () => {
     expect(fitPlane(new Float32Array(6), 2, 1)).toBeNull()
   })
+  it('returns null when every hypothesis is degenerate (collinear points)', () => {
+    const pts = new Float32Array(30)
+    for (let i = 0; i < 10; i++) { pts[i * 3] = i; pts[i * 3 + 1] = 2 * i; pts[i * 3 + 2] = -i }
+    expect(fitPlane(pts, 10, 0.1, { seed: 3 })).toBeNull()
+  })
   it('signedDistance is zero on the plane', () => {
     const p = { normal: [0, 0, 1] as [number, number, number], d: -2, inlierRatio: 1 }
     expect(signedDistance(p, 5, 5, 2)).toBeCloseTo(0)
