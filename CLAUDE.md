@@ -27,7 +27,7 @@ Clean-room WebGPU point cloud viewer/editor (three 0.186 `three/webgpu` + TSL, R
 
 ## Data
 - Source: City of Vancouver LiDAR 2022 tile `491000_5458000` (OGL – Vancouver, attribution required). Not 3DEP (A10).
-- `npm run data:demo` / `data:full` → `public/data/{demo,full}/` (gitignored) from release `v0.1-data`. Release assets have **no CORS**; the viewer loads same-origin. Deploy target: standalone Vercel project `point-cloud-editor`, created by hand in the Vercel dashboard (pending; see ARCHITECTURE › Deferred › Hosting) — `vercel.json` + `npm run build:vercel` fetch both datasets at build time; once live, the Lab proxies `/point-cloud/app/*` to it and iframes it at `/point-cloud` (`docs/EMBEDDING.md`).
+- `npm run data:demo` / `data:full` → `public/data/{demo,full}/` (gitignored) from release `v0.1-data`. Release assets have **no CORS**; the viewer loads same-origin. Deployed as the standalone Vercel project `point-cloud-editor` (`https://point-cloud-editor.vercel.app/point-cloud/app/`; pushes to `main` redeploy) — `vercel.json` + `npm run build:vercel` fetch both datasets at build time; the Lab proxies `/point-cloud/app/*` to it and iframes it at `https://lab.merttoka.com/point-cloud` (`docs/EMBEDDING.md`).
 - Rebuild: `tools/.venv` (`pip install -r tools/requirements.txt`), tile zip downloaded in a browser (Cloudflare challenge; Chrome MCP was not connected last time), `tools/fetch.py --import`, `tools/preprocess.py … --max-points 20000000 --demo 2000000`. Raw `.las` lives in `data/raw/` (gitignored, may be deleted).
 
 ## Environment

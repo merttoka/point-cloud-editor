@@ -22,8 +22,8 @@ It started as a portfolio piece: can a browser handle a real city block of LiDAR
 
 ## Live
 
-- **https://lab.merttoka.com/point-cloud** (Lab page with iframe; goes live once the Lab commit is pushed)
-- Standalone: https://point-cloud-editor.vercel.app/point-cloud/app/ (pending deploy; `?data=full` loads the 20M set, 160 MB)
+- **https://lab.merttoka.com/point-cloud** (Lab page with the viewer in an iframe)
+- Standalone: https://point-cloud-editor.vercel.app/point-cloud/app/ (`?data=full` loads the 20M set, 160 MB)
 
 Needs a browser with WebGPU (measured in Chrome 153); without it the page shows "WebGPU not available in this browser." Deploy order and why it matters: `docs/EMBEDDING.md` § Proxy / iframe › Deploy order.
 
