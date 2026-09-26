@@ -74,6 +74,14 @@ describe('createBenchHandle', () => {
     const h = createBenchHandle(store, api(), null)
     await expect(h.waitFor(() => false, 30)).rejects.toThrow(/timed out/)
   })
+  it('waitFor aborts immediately on a loader error instead of waiting out the timeout', async () => {
+    const store = createStore(initialState)
+    const h = createBenchHandle(store, api(), null)
+    store.set({ status: 'error', error: 'chunk 3: HTTP 404' })
+    const t0 = performance.now()
+    await expect(h.waitFor(() => false, 5_000)).rejects.toThrow(/chunk 3: HTTP 404/)
+    expect(performance.now() - t0).toBeLessThan(1000)
+  })
   it('record rejects with a clear message when captureStream is unavailable', async () => {
     const store = createStore(initialState)
     const a = api(); a.canvas = () => ({} as HTMLCanvasElement)

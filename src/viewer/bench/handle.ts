@@ -79,6 +79,7 @@ export function createBenchHandle(store: Store<ViewerState>, api: ViewerApi, hoo
   const waitFor = async (pred: () => boolean, timeoutMs = 120_000) => {
     const t0 = performance.now()
     while (!pred()) {
+      if (store.get().error) throw new Error(`waitFor aborted: ${store.get().error}`)
       if (performance.now() - t0 > timeoutMs) throw new Error(`waitFor timed out after ${timeoutMs} ms`)
       await settle(50)
     }
