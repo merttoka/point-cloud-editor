@@ -64,25 +64,31 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
     // Class counts once (one pass over the words, ~30 ms at 20M) and the exported segment table, both before `ready` so the
     // Layers card never shows zeros. A missing/short segments.bin only costs the segments (warned), never the dataset.
     const finish = async () => {
-      const counts = classCounts(buffers.qpos.array as Uint32Array, manifest.pointCount)
-      const classVisible: Record<number, boolean> = {}
-      for (const c of Object.keys(counts)) classVisible[Number(c)] = true
-      let segments: Segment[] = []
-      if (segmentsUrl && manifest.segments && manifest.segments.length > 0) {
-        try {
-          const res = await fetch(segmentsUrl)
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const bytes = new Uint8Array(await res.arrayBuffer())
-          if (bytes.length !== manifest.pointCount) throw new Error(`${bytes.length} bytes for ${manifest.pointCount} points`)
-          const r = applySegmentBytes(buffers.segBytes, bytes, manifest.segments)
-          if (r.unknown > 0) console.warn(`segments: dropped ${r.unknown} points whose id is not in the manifest table`)
-          buffers.uploadSegRange(0, manifest.pointCount - 1)
-          segments = r.segments
-        } catch (err) { console.warn(`segments: ${String(err)} (${segmentsUrl}); opening without segments`) }
+      try {
+        const counts = classCounts(buffers.qpos.array as Uint32Array, manifest.pointCount)
+        const classVisible: Record<number, boolean> = {}
+        for (const c of Object.keys(counts)) classVisible[Number(c)] = true
+        let segments: Segment[] = []
+        if (segmentsUrl && manifest.segments && manifest.segments.length > 0) {
+          try {
+            const res = await fetch(segmentsUrl)
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            const bytes = new Uint8Array(await res.arrayBuffer())
+            if (bytes.length !== manifest.pointCount) throw new Error(`${bytes.length} bytes for ${manifest.pointCount} points`)
+            const r = applySegmentBytes(buffers.segBytes, bytes, manifest.segments)
+            if (r.unknown > 0) console.warn(`segments: dropped ${r.unknown} points whose id is not in the manifest table`)
+            if (!disposed) buffers.uploadSegRange(0, manifest.pointCount - 1)
+            segments = r.segments
+          } catch (err) { console.warn(`segments: ${String(err)} (${segmentsUrl}); opening without segments`) }
+        }
+        if (disposed) return
+        store.set({ layers: { classCounts: counts, classVisible, segments }, status: 'ready', loadMs: performance.now() - t0 })
+        api.sendCamera = undefined
+      } catch (err) {
+        // Mirrors the worker's own 'error' branch below — a throw outside the segments block (e.g. classCounts) must not
+        // silently strand the dataset in 'loading'.
+        if (!disposed) store.set({ status: 'error', error: String(err) })
       }
-      if (disposed) return
-      store.set({ layers: { classCounts: counts, classVisible, segments }, status: 'ready', loadMs: performance.now() - t0 })
-      api.sendCamera = undefined
     }
     worker.onmessage = (e: MessageEvent<LoaderOut>) => {
       const msg = e.data

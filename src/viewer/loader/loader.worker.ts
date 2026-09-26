@@ -27,7 +27,7 @@ ctx.onmessage = (e) => {
     return
   }
   if (msg.type === 'export') {
-    // msg.words/msg.flags are released when this handler returns — the worker keeps no copy of the cloud.
+    // msg.words/msg.flags/msg.seg are released when this handler returns — the worker keeps no copy of the cloud.
     try {
       const r = compactPoints(msg.words, msg.flags, msg.words.length / WORDS_PER_POINT, msg.segments.length > 0 ? msg.seg : undefined)
       const zip = buildZip(r.words, exportManifest(msg.manifest, r.count, r.qmin, r.qmax, msg.segments), r.seg)
