@@ -49,7 +49,6 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
   // Layer visibility of point i (class bit ∧ segment bit); identity while nothing is masked so unmasked ops keep phase 5's cost.
   const layerOk = (i: number) => isVisible(masks.words, q[i * 2 + 1] >>> 24, seg[i])
   const maskVis = (): Vis => allVisible(masks.words) ? ALL : layerOk
-  const visible = (i: number) => (bytes[i] & (FLAG_HIDDEN | FLAG_DELETED)) === 0 && layerOk(i)
   let selRange: Range | null = null
   const patch = (p: Partial<ViewerState['edit']>) => patchEdit(store, p)
   const ready = () => store.get().status === 'ready' && !store.get().edit.busy
@@ -69,11 +68,12 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
     }
   }
   // Whole-buffer ops: push N bytes first, drop the command again if nothing changed.
-  const run = (pushRange: Range, op: () => Range | null) => {
+  // noopMessage: shown when the op found nothing to do but points were selected (masked out) — silent otherwise.
+  const run = (pushRange: Range, op: () => Range | null, noopMessage?: string) => {
     if (!ready()) return
     undo.push(pushRange.min, pushRange.max)
     const r = op()
-    if (!r) { undo.dropLast(); return }
+    if (!r) { undo.dropLast(); if (noopMessage && store.get().edit.counts.selected > 0) patch({ message: noopMessage }); return }
     buffers.uploadFlagsRange(r.min, r.max)
     refresh()
   }
@@ -104,9 +104,9 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
   return {
     bytes,
     ready,
-    isolate: () => run(all, () => ops.isolate(bytes, side(), maskVis())),
-    hide: () => run(all, () => ops.hide(bytes, side(), maskVis())),
-    del: () => run(all, () => ops.del(bytes, side(), maskVis())),
+    isolate: () => run(all, () => ops.isolate(bytes, side(), maskVis()), 'No visible selected points.'),
+    hide: () => run(all, () => ops.hide(bytes, side(), maskVis()), 'No visible selected points.'),
+    del: () => run(all, () => ops.del(bytes, side(), maskVis()), 'No visible selected points.'),
     unhideAll: () => run(all, () => ops.unhideAll(bytes)),
     clearSelection: clearSel,
     pick(idx, mode) {
@@ -143,12 +143,14 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
       const id = freeSegmentId(segs.map((s) => s.id))
       if (id === null) { patch({ message: 'All 255 segment ids are in use.' }); return null }
       const r = claimSegment(seg, bytes, N, id, side(), maskVis())
-      if (!r.range) return null
+      if (!r.range) { patch({ message: 'No visible selected points.' }); return null }
       buffers.uploadSegRange(r.range.min, r.range.max)
       setMaskSegment(id, true); masks.upload()          // a reused id starts visible
       const s: Segment = { id, name: name ?? `Segment ${id}`, color: SEGMENT_PALETTE[(id - 1) % SEGMENT_PALETTE.length], count: r.count, visible: true }
       patchLayers(store, { segments: [...segs, s] })
-      refresh()                                          // recounts segments that lost points to this one
+      patch({ message: undefined })
+      clearSel()                                         // new colour shows at once; run() inside refreshes
+      if (!selRange) refresh()                            // clearSel is a no-op with nothing selected — recount anyway
       return s
     },
     deleteSegment(id) {
@@ -181,7 +183,11 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
       fillVisible(masks.words); masks.upload()
       patchLayers(store, { classVisible: classVisibleAll(true), segments: layers().segments.map((s) => s.visible ? s : { ...s, visible: true }) })
     },
-    selectLayer(layer, mode) { run(all, () => selectLayerBytes(bytes, N, layerMember(layer, q, seg), mode, visible)) },
+    selectLayer(layer, mode) {
+      const vis = maskVis()   // ALL fast path while nothing is masked, like isolate/hide/del
+      const visOk = (i: number) => (bytes[i] & (FLAG_HIDDEN | FLAG_DELETED)) === 0 && vis(i)
+      run(all, () => selectLayerBytes(bytes, N, layerMember(layer, q, seg), mode, visOk))
+    },
     dispose() { undo.clear() },
   }
 }

@@ -6,7 +6,7 @@ import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
 import { createEditor, type Editor } from '../edit/editor'
 import { applySegmentBytes, classCounts } from '../edit/layers'
-import { patchEdit, useViewerStore } from '../state/store'
+import { initialState, patchEdit, useViewerStore } from '../state/store'
 import type { Segment } from '../state/store'
 import { homePose, type ViewerApi } from '../render/Scene'
 import { BENCH_CAP, benchWords, tableSizeFor } from '../compute/params'
@@ -32,7 +32,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
 
   useEffect(() => {
     let cancelled = false
-    store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 }, loadMs: null })
+    store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 }, loadMs: null, layers: initialState.layers })
     loadT0.current = performance.now()
     fetchManifest(manifestUrl).then(({ manifest, binUrl, segmentsUrl }) => {
       if (cancelled) return
@@ -69,17 +69,20 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
         const classVisible: Record<number, boolean> = {}
         for (const c of Object.keys(counts)) classVisible[Number(c)] = true
         let segments: Segment[] = []
-        if (segmentsUrl && manifest.segments && manifest.segments.length > 0) {
+        const table = manifest.segments
+        if (table && table.length > 0 && segmentsUrl) {
           try {
             const res = await fetch(segmentsUrl)
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const bytes = new Uint8Array(await res.arrayBuffer())
             if (bytes.length !== manifest.pointCount) throw new Error(`${bytes.length} bytes for ${manifest.pointCount} points`)
-            const r = applySegmentBytes(buffers.segBytes, bytes, manifest.segments)
+            const r = applySegmentBytes(buffers.segBytes, bytes, table)
             if (r.unknown > 0) console.warn(`segments: dropped ${r.unknown} points whose id is not in the manifest table`)
             if (!disposed) buffers.uploadSegRange(0, manifest.pointCount - 1)
             segments = r.segments
           } catch (err) { console.warn(`segments: ${String(err)} (${segmentsUrl}); opening without segments`) }
+        } else if ((table && table.length > 0) || segmentsUrl) {
+          console.warn(`segments: ${table && table.length > 0 ? 'manifest.segments present but no segmentsUrl' : 'segmentsUrl present but no manifest.segments'}; opening without segments`)
         }
         if (disposed) return
         store.set({ layers: { classCounts: counts, classVisible, segments }, status: 'ready', loadMs: performance.now() - t0 })
@@ -144,8 +147,9 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       try {
         // Copies: the attribute's own array, the flags mirror and the seg mirror must stay behind; the worker takes ownership of the slices.
         const segments = store.get().layers.segments.map(({ id, name, color }) => ({ id, name, color }))
-        const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), seg: buffers.segBytes.slice(), segments, manifest }
-        worker.postMessage(m, [m.words.buffer, m.flags.buffer, m.seg.buffer])
+        const seg = segments.length > 0 ? buffers.segBytes.slice() : new Uint8Array(0)   // no segments: skip the 20 MB copy, worker ignores it anyway
+        const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), seg, segments, manifest }
+        worker.postMessage(m, [m.words.buffer, m.flags.buffer, ...(seg.byteLength > 0 ? [m.seg.buffer] : [])])
       } catch (err) {
         // A synchronous postMessage failure would otherwise leave the toolbar locked behind `busy`.
         patchEdit(store, { busy: false, message: `export failed: ${String(err)}` })

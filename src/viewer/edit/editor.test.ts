@@ -131,6 +131,19 @@ describe('editor layers', () => {
     editor.hide()
     expect(store.get().edit.counts.hidden).toBe(4)
   })
+  it('saveSegment and masked ops message when selected points exist but none are visible subjects', () => {
+    const { store, editor } = setupClassed()
+    editor.selectLayer({ class: 6 }, 'replace')
+    editor.setLayerVisible({ class: 6 }, false)
+    expect(editor.saveSegment()).toBeNull()
+    expect(store.get().edit.message).toBe('No visible selected points.')
+    editor.hide()
+    expect(store.get().edit.counts.hidden).toBe(0)
+    expect(store.get().edit.message).toBe('No visible selected points.')
+    editor.setLayerVisible({ class: 6 }, true)
+    expect(editor.saveSegment()).not.toBeNull()
+    expect(store.get().edit.message).toBeUndefined()
+  })
   it('saveSegment claims the selection outside the undo ring; del reduces its count; undo restores it', () => {
     const { buffers, store, editor } = setupClassed()
     editor.selectLayer({ class: 6 }, 'replace')
@@ -139,7 +152,8 @@ describe('editor layers', () => {
     expect(Array.from(editor.segBytes.subarray(0, 8))).toEqual([0, 0, 0, 0, 1, 1, 1, 0])
     expect(buffers.segIds.updateRanges.at(-1)).toEqual({ start: 1, count: 1 })
     expect(store.get().layers.segments).toEqual([s])
-    expect(store.get().edit.undoDepth).toBe(1)      // still just the selectLayer
+    expect(store.get().edit.counts.selected).toBe(0)   // saveSegment clears the selection
+    expect(store.get().edit.undoDepth).toBe(2)          // selectLayer + the clear
     editor.pick(4, 'replace'); editor.del()
     expect(store.get().layers.segments[0].count).toBe(2)
     editor.undo()
@@ -153,6 +167,8 @@ describe('editor layers', () => {
     expect(editor.saveSegment()).toBeNull()
     editor.selectLayer({ class: 2 }, 'replace')
     expect(editor.saveSegment('roof')?.name).toBe('roof')
+    expect(store.get().edit.counts.selected).toBe(0)   // saveSegment clears the selection
+    expect(store.get().edit.undoDepth).toBe(2)          // selectLayer + the clear
     editor.pick(0, 'replace'); editor.pick(4, 'add')
     const s2 = editor.saveSegment()
     expect(s2?.id).toBe(2); expect(s2?.count).toBe(2)
