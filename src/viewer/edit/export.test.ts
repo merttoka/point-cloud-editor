@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { unzipSync, strFromU8 } from 'fflate'
 import { compactPoints, exportManifest, buildZip } from './export'
+import { applySegmentBytes } from './layers'
 import { packWords, unpackWords } from '../format/quant'
 import { validateManifest, type Manifest } from '../loader/manifest'
 import { FLAG_DELETED, FLAG_HIDDEN } from './flags'
@@ -58,5 +59,42 @@ describe('export', () => {
     expect(files['points.bin'].byteLength).toBe(3 * 8)
     expect(new Uint32Array(files['points.bin'].slice().buffer)).toEqual(r.words)   // slice: unzip views may be unaligned for Uint32Array
     expect(JSON.parse(strFromU8(files['manifest.json'])).pointCount).toBe(3)
+  })
+  it('compactPoints compacts segment bytes alongside the words', () => {
+    const flags = new Uint8Array([0, FLAG_DELETED, FLAG_HIDDEN, 0]), seg = new Uint8Array([1, 1, 0, 2])
+    const r = compactPoints(words(), flags, 4, seg)
+    expect(r.count).toBe(3)
+    expect(Array.from(r.seg!)).toEqual([1, 0, 2])
+    expect(compactPoints(words(), flags, 4).seg).toBeNull()
+  })
+  it('exportManifest with segments adds the table + segmentsFile; without them the keys are absent', () => {
+    const table = [{ id: 1, name: 'roof', color: '#e6194b' }]
+    const m = exportManifest(src, 3, [0, 0, 0], [65535, 65535, 65535], table)
+    expect(m.segments).toEqual(table); expect(m.segmentsFile).toBe('segments.bin')
+    const plain = exportManifest(src, 3, [0, 0, 0], [65535, 65535, 65535])
+    expect('segments' in plain).toBe(false); expect('segmentsFile' in plain).toBe(false)
+    expect(JSON.stringify(plain)).not.toContain('segments')
+  })
+  it('zip carries segments.bin only when the manifest names it', () => {
+    const flags = new Uint8Array([0, FLAG_DELETED, 0, 0]), seg = new Uint8Array([1, 1, 0, 2])
+    const r = compactPoints(words(), flags, 4, seg)
+    const m = exportManifest(src, r.count, r.qmin, r.qmax, [{ id: 1, name: 'a', color: '#000000' }, { id: 2, name: 'b', color: '#ffffff' }])
+    const files = unzipSync(buildZip(r.words, m, r.seg))
+    expect(Object.keys(files).sort()).toEqual(['manifest.json', 'points.bin', 'segments.bin'])
+    expect(Array.from(files['segments.bin'])).toEqual([1, 0, 2])
+    const plain = unzipSync(buildZip(r.words, exportManifest(src, r.count, r.qmin, r.qmax), r.seg))
+    expect(Object.keys(plain).sort()).toEqual(['manifest.json', 'points.bin'])
+  })
+  it('round trip: manifest validates, segments.bin re-imports with counts; a count-0 segment survives', () => {
+    const flags = new Uint8Array([0, 0, FLAG_DELETED, 0]), seg = new Uint8Array([1, 1, 3, 0])
+    const r = compactPoints(words(), flags, 4, seg)
+    const table = [{ id: 1, name: 'a', color: '#e6194b' }, { id: 3, name: 'gone', color: '#3cb44b' }]
+    const files = unzipSync(buildZip(r.words, exportManifest(src, r.count, r.qmin, r.qmax, table), r.seg))
+    const m = validateManifest(JSON.parse(strFromU8(files['manifest.json'])))
+    expect(m.segmentsFile).toBe('segments.bin')
+    const dst = new Uint8Array(m.pointCount)
+    const imported = applySegmentBytes(dst, files['segments.bin'], m.segments!)
+    expect(imported.unknown).toBe(0)
+    expect(imported.segments.map((s) => [s.id, s.count])).toEqual([[1, 2], [3, 0]])
   })
 })
