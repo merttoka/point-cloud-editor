@@ -46,6 +46,7 @@ export interface ViewerState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error?: string
   loaded: { points: number; chunks: number }
+  loadMs: number | null   // manifest fetch start → last chunk uploaded; null until ready
   budget: number
   pointSize: number
   colorMode: ColorMode
@@ -62,6 +63,7 @@ export const initialState: ViewerState = {
   manifest: null,
   status: 'idle',
   loaded: { points: 0, chunks: 0 },
+  loadMs: null,
   budget: 1,
   pointSize: 2,
   colorMode: 'height',

@@ -7,14 +7,19 @@ import { KeysOverlay, LoadingOverlay } from './ui/Overlays'
 import { Toolbar } from './ui/Toolbar'
 import { LassoOverlay } from './ui/LassoOverlay'
 import { keyAction, modeFromEvent } from './ui/keys'
+import { createBenchHandle, type BenchHandle, type BenchHooks } from './bench/handle'
+import { createCpuReference } from './bench/cpuReference'
 import styles from './PointCloudViewer.module.css'
 import tokens from './theme/tokens.module.css'
+
+export type { BenchHandle } from './bench/handle'
 
 export interface PointCloudViewerProps {
   manifestUrl: string
   theme?: 'dark' | 'light'
   className?: string
   dpr?: number            // canvas pixel ratio override (default: device)
+  onApi?: (handle: BenchHandle) => void   // bench/automation hook; called once per loaded dataset
 }
 
 // One store per viewer instance, provided via context so several viewers can coexist on a page.
@@ -27,13 +32,26 @@ export function PointCloudViewer(props: PointCloudViewerProps) {
   )
 }
 
-function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerProps) {
+function ViewerInner({ manifestUrl, theme, className, dpr, onApi }: PointCloudViewerProps) {
   const store = useViewerStore()
   const status = useStore((s) => s.status)
   const error = useStore((s) => s.error)
   const hudEl = useRef<HTMLDivElement>(null)
   const api = useRef<ViewerApi>({ fit: () => {} }).current
   const loaded = useLoader(manifestUrl, api)
+  // One handle per dataset: built when the loader hands over buffers, so editor/CPU references exist. `hooks` closes
+  // over api.* getters that the <Canvas> runners fill in later, so a handle built before <Scene> mounts still works.
+  useEffect(() => {
+    if (!onApi || !loaded) return
+    const ref = createCpuReference(loaded.buffers, loaded.manifest, api)
+    const hooks: BenchHooks = {
+      editor: loaded.editor,
+      classStats: () => api.classStats?.() ?? Promise.reject(new Error('compute not mounted')),
+      cpuPick: ref.cpuPick, cpuLasso: ref.cpuLasso,
+      renderGpuMs: () => api.renderGpuMs?.() ?? Promise.resolve(null),
+    }
+    onApi(createBenchHandle(store, api, hooks))
+  }, [onApi, loaded, store, api])
   const hasGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
   const [showKeys, setShowKeys] = useState(false)      // held `\`; transient, so not in the store
 
@@ -91,7 +109,7 @@ function ViewerInner({ manifestUrl, theme, className, dpr }: PointCloudViewerPro
   const message = !hasGpu ? 'WebGPU not available in this browser.' : status === 'error' ? error : null
   return (
     <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} ref={rootEl} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
-      <div id="hud" ref={hudEl} className={styles.hud} />
+      <div data-pcv-hud ref={hudEl} className={styles.hud} />
       {loaded && <LassoOverlay api={api} />}
       <Panel api={api} />
       <Toolbar editor={loaded?.editor ?? null} api={api} />

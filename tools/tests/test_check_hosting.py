@@ -42,3 +42,10 @@ def test_walk_handles_dns_failure_without_crashing():
     assert len(hops) == 1 and hops[0].status == 0
     res = dict((name, ok) for name, ok, _ in evaluate(hops, ORIGIN))
     assert res["range 206"] is False
+
+
+def test_evaluate_no_cors_skips_cors_rows():
+    hops = [Hop("https://a/x.bin", 206, {"content-range": "bytes 0-15/100", "accept-ranges": "bytes"}, 16)]
+    rows = evaluate(hops, "https://example.com", cors=False)
+    assert not any(name.startswith("cors") for name, _, _ in rows)
+    assert all(ok for _, ok, _ in rows)
