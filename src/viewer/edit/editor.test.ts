@@ -172,6 +172,14 @@ describe('editor layers', () => {
     const s = editor.saveSegment()
     expect(s?.id).toBe(1); expect(s?.visible).toBe(true); expect(s?.count).toBe(1)
   })
+  it('deleting a soloed segment returns its points to a visible unsegmented layer', () => {
+    const { buffers, editor } = setupClassed()
+    editor.selectLayer({ class: 6 }, 'replace'); editor.saveSegment()
+    editor.soloLayer({ segment: 1 })
+    expect(buffers.masks.words[1]).toBe(1 << 1)
+    editor.deleteSegment(1)
+    expect(buffers.masks.words[1] & 0b11).toBe(0b11)   // unsegmented (bit 0) and the freed id both visible
+  })
   it('rename and recolour patch the row; solo and show-all rewrite the masks', () => {
     const { buffers, store, editor } = setupClassed()
     editor.selectLayer({ class: 6 }, 'replace'); editor.saveSegment()

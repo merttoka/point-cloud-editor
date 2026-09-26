@@ -155,7 +155,8 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
       if (!ready()) return
       const r = releaseSegment(seg, N, id)
       if (r) buffers.uploadSegRange(r.min, r.max)
-      setMaskSegment(id, true); masks.upload()
+      // Freed points return to id 0 (unsegmented): both bits must be visible, or a solo on this segment hides them.
+      setMaskSegment(id, true); setMaskSegment(0, true); masks.upload()
       patchLayers(store, { segments: layers().segments.filter((s) => s.id !== id) })
     },
     renameSegment(id, name) { patchSegment(id, { name }) },
