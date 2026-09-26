@@ -5,11 +5,12 @@ import { centroidOf } from '../loader/manifest'
 import { dequantScale } from '../format/quant'
 import { cpuLasso, cpuPick, decodeWorld } from '../edit/project'
 import { packPoly, type Poly } from '../edit/lasso'
-import { FLAG_DELETED, FLAG_HIDDEN } from '../edit/flags'
+import { FLAG_DELETED, FLAG_HIDDEN, FLAG_SELECTED } from '../edit/flags'
+import { isVisible } from '../render/layerMasks'
 
 // CPU reference for the GPU select kernels: same matrices (api.viewParams from EditRunner), same visibility rule
-// (not hidden/deleted, inside the chunk's budget prefix), same attenuated radius as pickDepth. Installs api.cpuPick /
-// api.cpuLasso and returns the disposer that clears them.
+// (not hidden/deleted, inside the chunk's budget prefix, **layer-visible**), same attenuated radius as pickDepth.
+// Installs api.cpuPick / api.cpuLasso / api.selectionClasses and returns the disposer that clears them.
 export function createCpuReference(buffers: PointBuffers, manifest: Manifest, api: ViewerApi): () => void {
   const centroid = centroidOf(manifest.bounds)
   const dq = dequantScale(manifest.bounds), b = manifest.bounds
@@ -20,7 +21,7 @@ export function createCpuReference(buffers: PointBuffers, manifest: Manifest, ap
     const end = new Uint32Array(manifest.chunks.length)
     manifest.chunks.forEach((ch, k) => { end[k] = ch.offset + (buffers.loaded[k] ? Math.ceil(ch.count * v.budget) : 0) })
     const chunkOf = (i: number) => { let lo = 0, hi = manifest.chunks.length; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (manifest.chunks[m].offset <= i) lo = m; else hi = m }; return lo }
-    const visible = (i: number) => (buffers.flagBytes[i] & (FLAG_HIDDEN | FLAG_DELETED)) === 0 && i < end[chunkOf(i)]
+    const visible = (i: number) => (buffers.flagBytes[i] & (FLAG_HIDDEN | FLAG_DELETED)) === 0 && i < end[chunkOf(i)] && isVisible(buffers.masks.words, q[i * 2 + 1] >>> 24, buffers.segBytes[i])
     const m = v.view.elements
     const radiusPx = (i: number) => {
       const [x, y, z] = decodeWorld(q, i, dq, dqMin)
@@ -31,5 +32,10 @@ export function createCpuReference(buffers: PointBuffers, manifest: Manifest, ap
   }
   api.cpuPick = (x, y) => { const r = ref(); return cpuPick(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, x, y, r.visible, r.radiusPx) }
   api.cpuLasso = (poly: Poly) => { const r = ref(); const { data, count } = packPoly(poly); return cpuLasso(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, data, count, r.visible) }
-  return () => { api.cpuPick = undefined; api.cpuLasso = undefined }
+  api.selectionClasses = () => {
+    const out: Record<number, number> = {}
+    for (let i = 0; i < buffers.count; i++) if (buffers.flagBytes[i] & FLAG_SELECTED) { const c = q[i * 2 + 1] >>> 24; out[c] = (out[c] ?? 0) + 1 }
+    return out
+  }
+  return () => { api.cpuPick = undefined; api.cpuLasso = undefined; api.selectionClasses = undefined }
 }
