@@ -3,6 +3,9 @@ import type { SelectMode, SplitSide } from '../state/store'
 
 const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
 
+export type Vis = (i: number) => boolean          // extra per-point visibility (layer masks); identity when nothing is masked
+export const ALL: Vis = () => true
+
 export function sideMask(side: SplitSide): number { return side === 'A' ? FLAG_SPLIT_A : side === 'B' ? FLAG_SPLIT_B : 0 }
 export function isSubject(f: number, side: SplitSide): boolean {
   return (f & FLAG_SELECTED) !== 0 && (side === 'all' || (f & sideMask(side)) !== 0)
@@ -19,9 +22,9 @@ function pass(bytes: Uint8Array, from: number, to: number, next: (f: number, i: 
 }
 const whole = (b: Uint8Array, next: (f: number, i: number) => number) => pass(b, 0, b.length - 1, next)
 
-export const isolate = (b: Uint8Array, side: SplitSide) => whole(b, (f) => isSubject(f, side) || (f & FLAG_DELETED) ? f : f | FLAG_HIDDEN)
-export const hide = (b: Uint8Array, side: SplitSide) => whole(b, (f) => isSubject(f, side) ? (f & ~SEL_BITS) | FLAG_HIDDEN : f)
-export const del = (b: Uint8Array, side: SplitSide) => whole(b, (f) => isSubject(f, side) ? (f & ~SEL_BITS) | FLAG_DELETED : f)
+export const isolate = (b: Uint8Array, side: SplitSide, vis: Vis = ALL) => whole(b, (f, i) => (isSubject(f, side) && vis(i)) || (f & FLAG_DELETED) ? f : f | FLAG_HIDDEN)
+export const hide = (b: Uint8Array, side: SplitSide, vis: Vis = ALL) => whole(b, (f, i) => isSubject(f, side) && vis(i) ? (f & ~SEL_BITS) | FLAG_HIDDEN : f)
+export const del = (b: Uint8Array, side: SplitSide, vis: Vis = ALL) => whole(b, (f, i) => isSubject(f, side) && vis(i) ? (f & ~SEL_BITS) | FLAG_DELETED : f)
 export const unhideAll = (b: Uint8Array) => whole(b, (f) => f & ~FLAG_HIDDEN)
 export const clearSelection = (b: Uint8Array, range: Range | null) =>
   range ? pass(b, range.min, range.max, (f) => f & ~SEL_BITS) : whole(b, (f) => f & ~SEL_BITS)

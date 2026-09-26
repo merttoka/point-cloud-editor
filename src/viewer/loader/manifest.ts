@@ -6,6 +6,8 @@ export function centroidOf(b: Bounds): [number, number, number] {
 
 export interface ManifestChunk { offset: number; count: number; bounds: Bounds }
 
+export interface SegmentMeta { id: number; name: string; color: string }   // one exported/imported segment row (#rrggbb)
+
 export interface Manifest {
   version: 1
   name: string
