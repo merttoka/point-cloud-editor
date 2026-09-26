@@ -56,13 +56,29 @@ export const ASPRS_COLORS: Record<number, RGB> = {
   18: [255, 59, 208],   // high noise
 }
 
-export type LutKind = 'viridis' | 'turbo' | 'grayscale' | 'class'
+// ASPRS LAS 1.4 standard class names; the Layers card prefers the manifest's classMap, then this, then "Class N".
+export const ASPRS_NAMES: Record<number, string> = {
+  0: 'Never classified', 1: 'Unclassified', 2: 'Ground', 3: 'Low vegetation', 4: 'Medium vegetation', 5: 'High vegetation',
+  6: 'Building', 7: 'Low noise', 8: 'Reserved', 9: 'Water', 10: 'Rail', 11: 'Road surface', 12: 'Reserved',
+  13: 'Wire – guard', 14: 'Wire – conductor', 15: 'Transmission tower', 16: 'Wire connector', 17: 'Bridge deck', 18: 'High noise',
+}
+
+export const SEGMENT_NONE = '#8a8a8a'   // unsegmented points in the Segments colour mode (LUT entry 0)
+export function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+}
+
+export type LutKind = 'viridis' | 'turbo' | 'grayscale' | 'class' | 'segments'
 
 export function buildLut(kind: LutKind): Uint8Array {
   const out = new Uint8Array(256 * 4)
   for (let i = 0; i < 256; i++) {
     let rgb: RGB
-    if (kind === 'class') {
+    if (kind === 'segments') {
+      const c = hexToRgb(SEGMENT_NONE)
+      rgb = [c[0] / 255, c[1] / 255, c[2] / 255]
+    } else if (kind === 'class') {
       const c = ASPRS_COLORS[i] ?? ASPRS_COLORS[-1]
       rgb = [c[0] / 255, c[1] / 255, c[2] / 255]
     } else {
