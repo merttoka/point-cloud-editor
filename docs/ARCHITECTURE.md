@@ -1,12 +1,38 @@
 # Architecture
 
+## Overview
+
+```
+ Vancouver LiDAR 2022 tile (LAS, 51.5M pts)
+        │  tools/preprocess.py  (quantise, chunk, subsample → 20M full + 2M demo)
+        ▼
+ GitHub release v0.1-data  {demo,full}-{manifest.json,points.bin}
+        │  scripts/fetch-data.mjs  (npm run data:*; on Vercel: npm run build:vercel)
+        ▼
+ public/data/<name>/{manifest.json,points.bin}   ── served same-origin under /point-cloud/app/
+        │  loader.worker.ts  (HTTP Range per chunk; single-fetch fallback on 200)
+        ▼
+ storage buffers: qpos (8 B/pt) · flags (1 B/pt)          CPU: flags mirror (Uint8Array)
+        │
+        ├─► render   ChunkSprites (256 sprite draws, TSL colour/shading) → PostPass (EDL) → canvas
+        ├─► compute  hash: count → scan → scatter  →  normals (radius PCA)  →  ao
+        │            writes normals · ao; read back only by verify
+        └─► edit     pick / lasso kernels (GPU) · isolate / hide / delete / split / undo (mirror → upload)
+                         │
+                         ▼
+                     export: loader worker compacts + zips → export.zip (same manifest/bin layout)
+```
+
+`src/viewer/` holds the component; `src/App.tsx` + `src/harness.ts` are the page around it (URL params, `?bench=1` handle, theme messages).
+
 ## Deferred
 
 Known gaps carried across phases. Each entry names the owner phase (or "any") and what triggers the fix.
 
 **Hosting / embedding**
-- Release `v0.1-data` assets have no `access-control-allow-origin` (both hops). The viewer loads same-origin from `public/data/`; a cross-origin host (website static + `.htaccess` CORS, or a bucket) is needed before the Lab embed. Owner: Phase 6. Note: the 160 MB full bin can't go through the `portfolio-web` git repo (GitHub 100 MB limit).
-- `check_hosting.py` acceptance "passes on both bins" and Phase 2 "full set streams with 206 from the release URL" are unmet by design (same-origin only; Range path covered by mocked-fetch vitests and Vite's 206 responses).
+- Decided in phase 6 (§ Bench and deploy): the app is its own Vercel project and fetches both datasets at build time, so the browser never touches the CORS-less release URLs. The Lab proxies `/point-cloud/app/*` to it, same-origin. `check_hosting.py --no-cors` passes locally (`vite preview`, § Bench and deploy › Hosting). **Pending the user** (Vercel project creation, Lab push): `check_hosting.py --no-cors` against the project URL and the Lab-proxied full bin, and the Lab production check (page loads, theme toggle without a second manifest fetch). Record both results in § Bench and deploy › Hosting.
+- The release-URL acceptance lines ("passes on both bins", Phase 2 "full set streams with 206 from the release URL") stay unmet by design. The browser only ever loads same-origin data.
+- Data under `/point-cloud/app/data/` is served `immutable` for a year at unversioned paths. A changed dataset needs a new folder name (or release tag), or clients keep the old bytes. Owner: any (next data change).
 
 **Renderer / GPU lifetime**
 - r3f 9.7 never calls `gl.dispose()` on a `WebGPURenderer` at `<Canvas>` unmount; renderer + `qpos`/`flags` buffers live until page unload (see "GPU lifetime"). Owner: any (whichever phase adds remount/dataset switching; Phase 5 export re-open is a fresh page load by ruling 7, so it does not exercise this). Phase 4 adds ~214 MB of compute buffers to the same leak.
@@ -21,38 +47,91 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - `validateManifest` accepts `count ≤ 0`, non-integers and `pointCount === 0` (→ `storage(..., 0)`).
 
 **Viewer UI**
-- `id="hud"` on the viewer root child duplicates with several viewers on one page; the Playwright checks read `#hud`. Switch to `data-pcv-hud` + a bench handle in Phase 6.
+- ~~`id="hud"` on the viewer root child duplicates with several viewers on one page.~~ **Done (phase 6)**: the HUD element is `data-pcv-hud`, and scripted checks read the bench handle (`frame()`, `state()`), not the DOM.
 - No unit tests for `Panel`, `useLoader`; `ASPRS_FALLBACK` is named in the Phase 2 Interfaces but the code uses `ASPRS_COLORS[-1]`.
 - `dpr?: number` on `PointCloudViewer` (Phase 3, `?dpr=` on the dev harness, clamped `[0.5, 4]`) exists to drive perf-row measurement (DPR 2 numbers below) without editing source; not exercised as a public embedding API beyond that.
 
 **Post-processing**
-- 20M EDL cost at 100 % budget sits below the HUD EMA's ±1 ms toggle-to-toggle noise (Phase 3 measured section below); a GPU timestamp query around the pipeline's `render()` would give a real per-pass number. Owner: whichever phase next touches perf tooling (Phase 4 already wires `trackTimestamp`/`resolveTimestampsAsync` for compute).
+- ~~20M EDL cost at 100 % budget sits below the HUD EMA's ±1 ms toggle-to-toggle noise; a GPU timestamp query around the pipeline's `render()` would give a real per-pass number.~~ **Done (phase 6)**: `renderGpuMs` (render-pass timestamp query, `render/PostPass.tsx`). It exceeds the frame time at 10M/20M, see § Bench and deploy.
 - `PCFSoftShadowMap has been removed` fires once per `renderer.setSize` (every resize and every `dpr` change), on top of the one-time Phase 2 warning; pre-existing r3f default shadow config, benign, could be silenced with an explicit `shadows={false}` on `<Canvas>`. Owner: any.
 
 **Compute (Phase 4)**
 - Hash buffers (`cellStart` 16.8 MB, `cellCursor` 16.8 MB, `blockSums`, `sorted` 80 MB at 20M) stay allocated after a build (three has no API to free a `StorageBufferAttribute`'s GPU buffer; `Node.dispose()` only emits an event). Rebuilds reuse them; with `normals` 80 MB + `ao` 20 MB they are the ~214 MB the renderer-leak entry above counts. Owner: same as the renderer leak.
 - Verify is disabled above `BENCH_CAP` (2M): the CPU bench runs a per-chunk prefix subsample there, whose neighbourhoods differ from the full set, so the readbacks are not comparable. A same-subset GPU build (or a full 20M CPU run, ~2.5 min extrapolated) would enable it. Owner: any.
 - `scanBlockSums` is a single-thread serial loop over `T/256` block sums (16,384 at 20M; 1.70 ms for the whole scan row) — the serial floor if `T` grows past 2²². Owner: any larger tile.
-- Build wall time exceeds the GPU sum by ~35–50 ms at 2M and ~950 ms at 20M (each `timedCompute` awaits `computeAsync` then `resolveTimestampsAsync`, interleaved with 35 ms render frames); the panel shows both, only `gpu` is the kernel cost. A single command encoder for all passes would close the gap. Owner: Phase 6 perf tooling.
+- Build wall time exceeds the GPU sum by ~35–50 ms at 2M and ~950 ms at 20M (each `timedCompute` awaits `computeAsync` then `resolveTimestampsAsync`, interleaved with 35 ms render frames); the panel shows both, only `gpu` is the kernel cost. A single command encoder for all passes would close the gap. Owner: any (out of scope for phase 6, P6-10).
 - StrictMode mounts `<ComputeRunner>` twice; the first pipeline's hash buffers linger until unload in DEV only (same `dispose()` limitation).
 - CPU bench pins the loader worker (~11 s at 2M, 14.5 s for the 20M subsample); a `dispose` during a bench terminates the worker and the pending promise resolves `null`.
 - Panel "Benchmark (CPU, N pts)" title shows `min(total, BENCH_CAP)` = 2,000,000 on the full set while the actual subsample is 1,999,872 (256 × floor(2M/256)); the table row uses the real `bench.n`.
 
 **Editing (Phase 5)**
-- 20M lasso readback (`getArrayBufferAsync(flags)`, 20 MB) measures 135–173 ms, above the spec's 100 ms fallback trigger. The partial-range fallback (`getArrayBufferAsync(attr, null, offset, count)` over the polygon's visible index range) is unsound for replace mode — the kernel clears `selected`/split bits over the whole buffer — so the full readback stays; a bbox-limited add/subtract path would still need the whole-buffer clear on replace. Owner: any.
-- `pick.ms` (HUD/toolbar `pick ms`) is wall time from `resetPick` submit to the 8-byte readback, so at 20M it is 15–146 ms of queue wait behind in-flight 33 ms render frames plus two 20M-thread passes, not kernel cost (2.1 ms at 2M). A `timedCompute` variant would isolate the GPU part. Owner: Phase 6 perf tooling.
+- 20M lasso readback (`getArrayBufferAsync(flags)`, 20 MB) measured 135–173 ms in phase 5, above the spec's 100 ms fallback trigger. The phase 6 bench row reads 80.7 ms (earlier range not reproduced, cause unknown). The partial-range fallback (`getArrayBufferAsync(attr, null, offset, count)` over the polygon's visible index range) is unsound for replace mode — the kernel clears `selected`/split bits over the whole buffer — so the full readback stays; a bbox-limited add/subtract path would still need the whole-buffer clear on replace. Owner: any.
+- `pick.ms` (HUD/toolbar `pick ms`) is wall time from `resetPick` submit to the 8-byte readback, so at 20M it is 15–146 ms of queue wait behind in-flight 33 ms render frames plus two 20M-thread passes, not kernel cost (2.1 ms at 2M). A `timedCompute` variant would isolate the GPU part. Owner: any (phase 6 publishes the wall number, median of 5).
 - `pickDepth` / `pickIndex` share 12 duplicated WGSL lines (guards, decode, project, radius, distance); only the last statement differs. Owner: any.
 - `Scene ↔ EditRunner` import cycle: `EditRunner` imports `homePose` from `Scene.tsx`, which mounts `<EditRunner>`; `homePose` is called at pick time only (same pattern as `useLoader`), harmless under Vite/ESM but a lint trap. Move `homePose` to `render/camera.ts`. Owner: any.
 - Undoing a `split` restores the flag bytes but leaves `edit.split.fitted = true` / `inlierRatio` and the chosen `splitSide` (verified at 20M: after undo the store still reads `fitted: true, inlierRatio 0.053`), so a following side-A op runs against an empty set. `undo()`/`redo()` should reset `edit.split` (or rederive `fitted` from the bytes). Owner: any.
 - `editor.split()`'s `selectedPositions` is two full-N scans over the mirror (count, then fill a `Float32Array` of selected positions) before the 50k sample is drawn — 489 ms wall for a 16.8M-point selection at 20M (the fit itself is 200 RANSAC iterations on 50k points). A reservoir sample in the scan loop would drop the arrays. Owner: any.
-- The toolbar (bottom-left) overlaps the Panel's bottom rows (HUD checkbox) below ≈ 860 px viewport height. Owner: Phase 6 (Lab embed layout).
+- The toolbar (bottom-left) overlaps the Panel's bottom rows (HUD checkbox) below ≈ 860 px viewport height. Owner: any (phase 6 did not change the layout).
 - 20M export peak worker memory is unverified: the worker holds the transferred `qpos` (160 MB) + flags (20 MB) copies, the compacted output (≤ 160 MB) and the zip (same size, stored), ≈ 3 × 160 MB transiently; measured only as wall time (398 ms for 17.4M points). Owner: any.
 - The DEV handle (`__pcvEdit.api.exportZip`) can export while `status === 'loading'` and would zip zeros for chunks not yet uploaded; the toolbar gates Export on `ready`. Owner: any.
+
+**Bench handle (Phase 6)**
+- `runAll({ skipCpu: false })` runs the CPU bench twice, because `verify()` re-runs it after `cpuBench()`. The runbook avoids this (`skipCpu: true`, then separate `cpuBench()` / `verify()` evaluates). Owner: any.
+- `lasso()` / `pick()` return the previous store values (`gpuMs`, `readbackMs`, `pickMs`, `selected`) when the api call returns early (not ready, busy). Owner: any.
+- The `onApi` effect in `PointCloudViewer.tsx` has no cleanup, so a host that keeps a handle across a dataset switch holds a stale one. Owner: any (with dataset switching).
+- `api.orbit` (`render/Scene.tsx`) has no cancellation: an unmount mid-orbit leaves its step loop moving the camera until it finishes. Bench-only. Owner: any.
 
 **Tools (Phase 1)**
 - `check_hosting.walk()` has only a DNS-failure test (no local-http-server redirect test); `evaluate([])` raises; hop-cap exhaustion is silent.
 - `--stats` zero-intensity "no division warning" is not asserted; `rec.astype("<u2")` makes a redundant 160 MB copy; the DNS-failure test does a live `.invalid` lookup (slow on sandboxed resolvers).
 - `--import` derives the tile URL from the zip stem (`--url` overrides); a malformed zip prints a raw traceback.
+
+## Bench and deploy (phase 6)
+
+Spec: `docs/superpowers/specs/2026-09-15-phase-6-perf-docs-design.md` (Amendments P6-1–P6-10). Runbook: `scripts/bench.md`. Rows: `docs/bench/2026-09-25-m4max.json`.
+
+Label change against the sections below: the phase 6 numbers are from **Chrome 153 via Playwright MCP (headed)** on a **120 Hz** display (8.33 ms vsync floor; an empty rAF loop measures 8.30 ms). Phases 0–5 say "headless Chromium" for the same Playwright MCP setup, which was in fact headed, and they were measured on a 240 Hz display (4.17 ms floor). Their numbers are left as recorded.
+
+### Bench handle (`bench/handle.ts`)
+- `PointCloudViewer` takes `onApi?: (h: BenchHandle) => void`. Once per loaded dataset it calls `onApi` with `createBenchHandle(store, api, hooks)`. The harness (`src/App.tsx`) sets `window.__pcv` only under `?bench=1`. `src/viewer/` parses no URL and sets no global: zero `__pcv` and zero `import.meta.env.DEV` under it.
+- `BenchHooks` carries what is not on `ViewerApi`: `editor`, `classStats`, `cpuPick` / `cpuLasso` (`createCpuReference` in `bench/cpuReference.ts`, CPU references for the GPU kernels) and `renderGpuMs`. The hooks close over `api.*` getters that the `<Canvas>` runners fill in later, so a handle built before `<Scene>` mounts still works.
+- `handle.ts` is a pure module (type-only imports of three-facing code) with vitest coverage in `handle.test.ts`. `memoryBytes(pointCount)` is the computed-memory formula: `qpos` 8 B/pt, `flags` and `ao` `ceil(N/4)×4` B, `normals` 4 B/pt, and the hash (`cellStart` T+1, `cellCursor` T, `blockSums` T/256, `sorted` N; 4 B each).
+- `runAll` runs in the page: one `browser_evaluate` per dataset produces a whole row. There is no external polling while 160 MB streams (the Playwright tab crashes, and the console buffer caps around 184 entries), and there is no MCP round-trip inside a timed interval. The sequence is settle → frame → `orbit` → frame → EDL off/on → `renderGpuMs` → `compute` → lasso (vs `cpuLasso`) → 5 picks. `cpuBench()` and `verify()` take about 15 s each at 2M, so the runbook calls them in their own evaluates (`skipCpu: true`) to stay under the MCP timeout.
+
+### `renderGpuMs` (`render/PostPass.tsx`)
+- It waits one rAF, then `resolveTimestampsAsync(TimestampQuery.RENDER)`. three's query pool keeps the latest begin/end pair per render context since the last resolve and returns their sum, so the value covers the scene pass plus the EDL quad of the most recent frame.
+- Measured: 6.95 / 25.49 / 52.82 ms (2M / 10M / 20M) against frames of 8.35 / 16.77 / 33.74 ms. At 10M and 20M the sum exceeds the frame time. The cause is not established. A likely one is that a pass's begin/end interval overlaps neighbouring work on the tile-based GPU. So use it to compare runs, and do not add it to frame time.
+
+### Measured (2026-09-25)
+The rows are in the JSON (the README tables are generated from it). Against the earlier sections:
+
+| quantity | phase 6 row | earlier | reading |
+|---|---|---|---|
+| 2M frame | 8.37 → 8.35 ms | 4.17 ms | display vsync (120 vs 240 Hz), not a regression |
+| 20M frame, home pose (100 %) | 33.19 ms | 33.2–33.3 ms (phase 5) | same |
+| 20M EDL off / on (100 %; 50 %) | 34.12 / 33.73; 16.72 / 16.09 ms | 33.7 / 33.0; 17.1 / 17.4 ms (phase 3) | still inside noise |
+| 2M compute total | 81.85 ms | 80–83 ms | same |
+| 20M hash (count + scan + scatter) | 4.92 ms (10M row: 12.52) | 9.05 ms | one sample each; scatter swings 2.2–9.8 ms |
+| 20M ao | 570.88 ms (10M row: 583.01) | 685 ms | faster in both rows; cause unknown |
+| 2M verify max | 32.27° at 6× | 81.23° at 3× | radius change, not a regression |
+| 2M CPU hash | 26.8 ms | 17–19 ms | one sample |
+| 20M lasso flags readback | 80.7 ms | 135–173 ms (phase 5) | not reproduced, cause unknown |
+| 20M pick, wall | median 113 ms (21–122) | 37–146 ms, mean 96 | same queue-wait regime |
+
+- A dev-server smoke row taken with other tabs open read 142 ms for the 2M compute total, against 81.85 ms in a clean browser. The runbook now closes every other tab first.
+- The 2M `cpuBench`, `verify` and `rssDeltaKB` come from the first demo load of the session (viewport 1277×804). The rest of the row is from a re-run at 1277×860. None of those three depend on the viewport.
+
+### Hosting (`vercel.json`, `vite.config.ts`)
+- The standalone Vercel project is `point-cloud-editor`. `buildCommand` is `npm run build:vercel` (`data:demo` + `data:full` + `build`, so both datasets are fetched at build time), output `dist`. `base` is `/point-cloud/app/` in dev, preview and build alike.
+- Vercel serves `dist/` at `/`, so a rewrite maps `/point-cloud/app/:path*` → `/:path*`. Responses under `/point-cloud/app/data/` carry `Cache-Control: public, max-age=31536000, immutable` and `Access-Control-Allow-Origin: https://lab.merttoka.com`.
+- In the Lab repo, `vercel.json` routes a 308 from `/point-cloud/app` to `/point-cloud/app/`, then the proxy `/point-cloud/app/(.*)` → the project, both ahead of `{ "handle": "filesystem" }`. The `/point-cloud` page renders the Lab header and a full-height iframe (`?theme=` at mount, then `postMessage({ type: 'pcv-theme' })`, which `themeFromMessage` in `src/harness.ts` accepts from its own origin only). That commit is made but not pushed. The proxy gives the Vercel host same-origin trust on `lab.merttoka.com`, so the project must exist and be owned before the Lab push.
+- `check_hosting.py --no-cors http://localhost:4173/point-cloud/app/data/demo/points.bin` (`vite preview`): `range 206` PASS, `content-range` PASS (`bytes 0-15/16000000`, 16 B body), `accept-ranges` PASS. Production runs (project URL, Lab proxy) are pending; see Deferred.
+
+### Media (`docs/media/`)
+- `record(seconds)` records `canvas.captureStream(30)` with `MediaRecorder` (VP9) and downloads the result. The hero script (`scripts/bench.md` § Media) orbits, lassoes, splits and toggles EDL over 12 s: 4.28 MB raw at 1280×720, 30 fps.
+- ffmpeg (`-an`) turns that into `hero.webm` (VP9 1.5 Mb/s, 1.97 MB) and `hero.mp4` (x264 CRF 23, 0.69 MB, Safari fallback).
+- The PNGs (`overview`, `classification`, `normals-ao`, `lasso`, `split`) are `browser_take_screenshot` captures at 1280×720, DPR 1.
+- The hero's scripted lasso selects about 96 % of the points, so the split shot is mostly one side. `split.png` is the clearer view.
 
 ## Viewer (phase 2)
 

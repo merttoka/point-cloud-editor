@@ -27,10 +27,10 @@ Clean-room WebGPU point cloud viewer/editor (three 0.186 `three/webgpu` + TSL, R
 
 ## Data
 - Source: City of Vancouver LiDAR 2022 tile `491000_5458000` (OGL – Vancouver, attribution required). Not 3DEP (A10).
-- `npm run data:demo` / `data:full` → `public/data/{demo,full}/` (gitignored) from release `v0.1-data`. Release assets have **no CORS**; the viewer loads same-origin. Cross-origin hosting for the Lab embed is undecided (Phase 6).
+- `npm run data:demo` / `data:full` → `public/data/{demo,full}/` (gitignored) from release `v0.1-data`. Release assets have **no CORS**; the viewer loads same-origin. Hosting: standalone Vercel project `point-cloud-editor` (`vercel.json`, `npm run build:vercel` fetches both datasets at build time); the Lab proxies `/point-cloud/app/*` to it and iframes it at `/point-cloud` (`docs/EMBEDDING.md`).
 - Rebuild: `tools/.venv` (`pip install -r tools/requirements.txt`), tile zip downloaded in a browser (Cloudflare challenge; Chrome MCP was not connected last time), `tools/fetch.py --import`, `tools/preprocess.py … --max-points 20000000 --demo 2000000`. Raw `.las` lives in `data/raw/` (gitignored, may be deleted).
 
 ## Environment
 - Dev URL: `http://localhost:5173/point-cloud/app/` (`vite.config.ts` `base: '/point-cloud/app/'`, matches the Vercel deploy path).
-- M4 Max, Chromium via Playwright MCP, DPR 1. Vsync cap 240 Hz (4.17 ms floor). Playwright console buffer caps ~184 entries; don't poll the page in tight external loops while 160 MB streams (tab crashes) — use one in-page loop or `browser_wait_for`.
+- M4 Max, Chrome via Playwright MCP (headed), DPR 1. Display 120 Hz (8.33 ms vsync floor; phases 0–5 measured on a 240 Hz display, 4.17 ms). Playwright console buffer caps ~184 entries; don't poll the page in tight external loops while 160 MB streams (tab crashes) — use one in-page loop or `browser_wait_for`.
 - Chrome MCP extension is optional; if unavailable ask the user to download by hand.

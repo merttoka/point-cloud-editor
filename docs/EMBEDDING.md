@@ -7,11 +7,12 @@
 
 ## Proxy / iframe
 
-The standalone app is built with `base: '/point-cloud/app/'` and deployed at `https://point-cloud-editor.vercel.app` (data under `/point-cloud/app/data/{demo,full}/`). The Lab's `vercel.json` routes it through its own origin; the route must come **before** `{ "handle": "filesystem" }` so the SPA fallback never swallows it:
+The standalone app is built with `base: '/point-cloud/app/'` and deployed at `https://point-cloud-editor.vercel.app` (data under `/point-cloud/app/data/{demo,full}/`). The Lab's `vercel.json` routes it through its own origin; the routes must come **before** `{ "handle": "filesystem" }` so the SPA fallback never swallows them. Excerpt (the Lab's other routes omitted):
 
 ```json
 {
   "routes": [
+    { "src": "/point-cloud/app", "headers": { "Location": "/point-cloud/app/" }, "status": 308 },
     { "src": "/point-cloud/app/(.*)", "dest": "https://point-cloud-editor.vercel.app/point-cloud/app/$1" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/" }
@@ -63,7 +64,7 @@ The viewer fills its parent; give the parent a size.
 | `@react-three/drei` | `10.7.8` | |
 | `fflate` | `0.8.3` | export zip |
 | `@types/three` | `0.186.0` | dev |
-| `@webgpu/types` | any recent | dev; add to `compilerOptions.types` |
+| `@webgpu/types` | `^0.1.69`–`^0.1.72` | dev (tested range: Lab / this repo); add to `compilerOptions.types` |
 | `react` / `react-dom` | `19.x < 19.3` | fiber's peer range |
 
 `.npmrc` with `legacy-peer-deps=true` is needed only if the host pins `react ≥ 19.3` (outside fiber 9.7's peer range). This repo does exactly that (react 19.3.0 + `legacy-peer-deps=true`) and runs fine.
