@@ -1,0 +1,21 @@
+.card { padding: 10px 12px; background: var(--pcv-card); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); display: grid; gap: 3px; }
+.header { display: flex; justify-content: space-between; align-items: center; background: none; border: 0; padding: 0; color: var(--pcv-text); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.header span { color: var(--pcv-muted); font-weight: 400; }
+.groupTitle { color: var(--pcv-text-2); font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; font-size: 10px; padding-top: 6px; }
+.row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 16px; gap: 6px; align-items: center; padding: 1px 3px; border-radius: 4px; cursor: pointer; user-select: none; }
+.row:hover { background: var(--pcv-surface); }
+.row[data-hidden=true] { opacity: 0.45; }
+.segRow { grid-template-columns: 12px minmax(0, 1fr) auto 16px 16px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--pcv-border); position: relative; overflow: hidden; }
+.swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nameInput { min-width: 0; width: 100%; background: none; border: 0; border-bottom: 1px solid transparent; color: var(--pcv-text); font: inherit; padding: 0; cursor: text; }
+.nameInput:focus { outline: none; border-bottom-color: var(--pcv-accent); }
+.count { color: var(--pcv-muted); font: 11px/1.4 var(--pcv-mono); }
+.icon { background: none; border: 0; padding: 0; color: var(--pcv-text-2); font: inherit; line-height: 1; cursor: pointer; }
+.icon:hover { color: var(--pcv-text); }
+.icon:disabled { opacity: 0.4; cursor: default; }
+.footer { display: grid; gap: 4px; padding-top: 6px; }
+.button { padding: 4px 8px; background: var(--pcv-surface); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: 4px; font: inherit; cursor: pointer; }
+.button:disabled { opacity: 0.5; cursor: default; }
+.muted { color: var(--pcv-muted); }
