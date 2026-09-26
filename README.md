@@ -42,7 +42,8 @@ Needs a browser with WebGPU (measured in Chrome 153); without it the page shows 
 | `H` | toggle HUD |
 | `\` (hold) | show the key list |
 | toolbar (bottom-left) | Orbit / Lasso, Isolate, Hide, Delete, Unhide all, Clear, Split + side, Undo / Redo, Export; counts `sel · hidden · deleted`, last lasso `gpu / readback ms`, last `pick ms` |
-| panel | point budget %, point size px, colour mode (height / intensity / class), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 2–10 × spacing, default 6×), shading (flat / lit / lit + AO / normals debug), CPU benchmark, verify |
+| panel | point budget %, point size px, colour mode (height / intensity / class / segments), colormap, EDL on/off, radius (1–4 px), strength (0–4), build normals + AO (radius 2–10 × spacing, default 6×), shading (flat / lit / lit + AO / normals debug), CPU benchmark, verify |
+| layers card (right, below the panel) | Classes: one row per class present (swatch, name, count, eye); Segments: your saved selections (colour, name, count, eye, ×). Click a row → select it (`⇧` add, `⌥` subtract), double-click → solo, eye → hide/show, Show all. Hidden layers are skipped by pick, lasso and every op |
 Keys work only while the viewer has focus (click it first) and are ignored from the panel's form controls. A centred progress card covers the load; it unmounts on ready.
 
 ### Editing
@@ -50,6 +51,11 @@ One flag byte per point (`hidden 1 · selected 2 · deleted 4 · splitA 8 · spl
 
 ### Export
 Export writes `export.zip` = `manifest.json` + `points.bin` in the same v1 layout the loader reads (one chunk, deleted points dropped, hidden kept, bounds unchanged); compaction and zipping (`fflate`, stored) run in the loader worker. Re-open by unzipping into `public/data/<folder>/` and loading `http://localhost:5173/point-cloud/app/?data=<folder>` (`[a-z0-9-]+`; default `demo`) — a fresh page load, not an in-place dataset switch.
+
+### Layers
+Every class the tile carries is a row; a segment is a named group of points you save from the current selection (one `segId` byte per point, exclusive, ≤ 255 segments). Class and segment visibility are two independent masks read by the vertex stage and the select kernels, so hiding ground and vegetation and lassoing a roof selects the building alone. Segment save / rename / recolour / delete are outside the undo ring; selecting a layer goes through it like a lasso. Export writes `segments.bin` + a `segments` table into the manifest (optional fields; a plain export is unchanged) and re-open restores the rows; visibility is not persisted. The Segments colour mode paints each segment with its colour and everything else grey.
+
+![Layers card, Segments colour mode](docs/media/layers.png)
 
 ## Setup
 ```bash
@@ -143,13 +149,15 @@ Memory after a build. The computed figure is the byte size of the GPU buffers (`
 
 The 10M row allocates for all 20M points, since the budget only limits drawing. At 20M the RSS proxy reads below the computed total, so read it as an order of magnitude, not a bound.
 
+Phase 7 adds the `segIds` buffer (1 B/point: 2.0 MB at 2M, 20.0 MB at 20M; `memory().segIds`), so the computed 20M total after a build is ≈ 414 MB.
+
 ## Architecture
 
 - **Data**: `tools/preprocess.py` turns the raw LAS tile into a chunked `points.bin` (8 B/point, quantised) plus a `manifest.json`. Both are release assets, fetched by `scripts/fetch-data.mjs`.
 - **Loading**: a module worker fetches chunks with HTTP `Range` and uploads them into one `qpos` storage buffer. Chunks render as they arrive, 256 sprite draws.
-- **Rendering**: sprite quads in TSL (height / intensity / class colour, lit + AO shading) feed an EDL post pass. One `flags` byte per point drives hide/delete (collapsed quads) and selection tint.
+- **Rendering**: sprite quads in TSL (height / intensity / class colour, lit + AO shading) feed an EDL post pass. One `flags` byte per point drives hide/delete (collapsed quads) and selection tint. One `segId` byte per point and a 9-word layer mask drive per-layer visibility (masked quads collapse) and the Segments colour mode.
 - **Compute**: raw WGSL through `wgslFn`, in this order: spatial hash (count → scan → scatter), radius-PCA normals, tangent-plane AO. The CPU twin in the worker runs the bench and verify.
-- **Editing**: pick and lasso are compute kernels over the rendered prefix. Isolate/hide/delete/split/undo mutate a CPU mirror of `flags` and upload the touched range. Export writes a zip in the loader's own format.
+- **Editing**: pick and lasso are compute kernels over the rendered prefix. Isolate/hide/delete/split/undo mutate a CPU mirror of `flags` and upload the touched range. Export writes a zip in the loader's own format. Layers: class rows, saved segments, masks honoured by the kernels and the CPU ops; segments export/import.
 
 Details, measured findings and the deferred backlog: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

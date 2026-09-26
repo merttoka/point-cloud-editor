@@ -12,7 +12,8 @@
  public/data/<name>/{manifest.json,points.bin}   ── served same-origin under /point-cloud/app/
         │  loader.worker.ts  (HTTP Range per chunk; single-fetch fallback on 200)
         ▼
- storage buffers: qpos (8 B/pt) · flags (1 B/pt)          CPU: flags mirror (Uint8Array)
+ storage buffers: qpos (8 B/pt) · flags (1 B/pt) · segIds (1 B/pt) · masks (36 B)
+                                  CPU: flags + segIds mirrors (Uint8Array)
         │
         ├─► render   ChunkSprites (256 sprite draws, TSL colour/shading) → PostPass (EDL) → canvas
         ├─► compute  hash: count → scan → scatter  →  normals (radius PCA)  →  ao
@@ -81,6 +82,13 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - The `onApi` effect in `PointCloudViewer.tsx` has no cleanup, so a host that keeps a handle across a dataset switch holds a stale one. Owner: any (with dataset switching).
 - `api.orbit` (`render/Scene.tsx`) has no cancellation: an unmount mid-orbit leaves its step loop moving the camera until it finishes. Bench-only. Owner: any.
 
+**Layers (Phase 7)**
+- Automatic instances (connected components over the hash) are parked. A `segId` per point and the segment list model are in place, so an instance pass only has to write ids and rows. Owner: any.
+- Classes ≥ 31 share mask bit 31 (`min(cls, 31)`): hiding one hides them all. Vancouver carries classes ≤ 18; a tile with 64+ would need a wider class mask. Owner: any (first such tile).
+- `refresh()` recounts segments with a full pass over `segBytes` + flags after every edit while any segment exists (ruling 3), on top of `scanFlags`. Fold it into `scanFlags` if it shows in 20M edit timings. Owner: any.
+- Layer visibility is not persisted: export writes the segment table and ids, re-open shows every layer. Owner: any.
+- The segment colour control is the browser's native `<input type="color">` picker (looks different per browser, no palette). Owner: any (UI polish).
+
 **Tools (Phase 1)**
 - `check_hosting.walk()` has only a DNS-failure test (no local-http-server redirect test); `evaluate([])` raises; hop-cap exhaustion is silent.
 - `--stats` zero-intensity "no division warning" is not asserted; `rec.astype("<u2")` makes a redundant 160 MB copy; the DNS-failure test does a live `.invalid` lookup (slow on sandboxed resolvers).
@@ -133,6 +141,38 @@ The rows are in the JSON (the README tables are generated from it). Against the 
 - ffmpeg (`-an`) turns that into `hero.webm` (VP9 1.5 Mb/s, 1.97 MB) and `hero.mp4` (x264 CRF 23, 0.69 MB, Safari fallback).
 - The PNGs (`overview`, `classification`, `normals-ao`, `lasso`, `split`) are `browser_take_screenshot` captures at 1280×720, DPR 1.
 - The hero's scripted lasso selects about 96 % of the points, so the split shot is mostly one side. `split.png` is the clearer view.
+
+## Layers (phase 7)
+
+Spec: `docs/superpowers/specs/2026-09-26-phase-7-layers-design.md`. Plan and rulings: `docs/superpowers/plans/2026-09-26-phase-7-layers.md` § Rulings (numbers cited below). Every class the tile carries is a row; a segment is a named, exclusive group of points saved from the selection (≤ 255). Class and segment visibility are two masks read by the vertex stage, the select kernels and the CPU ops.
+
+### Buffers and masks (`render/PointBuffers.ts`, `render/layerMasks.ts`)
+`segIds` packs one u8 segment id per point four to a word, the same layout as `flags` (`ceil(N/4)×4` B, 20 MB at 20M; 0 = unsegmented). `segBytes = new Uint8Array(segIds.array.buffer)` is the CPU mirror and the source of truth; the GPU never writes it. `uploadSegRange(minIdx, maxIdx)` uploads one word-aligned range, like `uploadFlagsRange`. The masks live on `PointBuffers.masks` (ruling 1), so the material, the select pipeline, the editor and the CPU reference share one object: 9 `u32` words, word 0 the class mask (bit `min(cls, 31)`, so classes ≥ 31 share bit 31 — ruling 7), words 1–8 the segment mask (bit per id, bit 0 = unsegmented points). Bit set = visible; all start `0xffffffff`. Mutate with `setBit`, then `masks.upload()` writes the whole 36 B.
+
+### Vertex stage (`render/pointMaterial.ts`)
+`clsBit` and `segBit` are each 0 or 1 and multiply the size term: `sizeNode = select(collapsed, 0, sizePx) × float(clsBit × segBit)`. A masked point collapses exactly like a hidden one, with no branch near `positionView` (the phase 0 rule). The Segments colour mode is mode 3 of the `t` select (`t = segId / 255`) over a 256×1 sRGB `DataTexture` LUT (`LutKind 'segments'`), the same `texture()` path as the class LUT, in place of the spec's packed-colour storage buffer (ruling 2): no extra storage read, and the sRGB decode comes from the texture format. Entry 0 is grey `#8a8a8a` and never changes; `setSegmentColor(id, hex)` writes one texel and sets `needsUpdate`.
+
+Observed finding (Task 4): the material's original class read, `packed.shiftRight(8)` chained onto `packed = w.y.shiftRight(16)`, rendered class colour mode as one flat grey and never gated the class mask bit on this machine (three 0.186.0, Chrome, WebGPU). A controlled fresh-reload test reproduced it. The single shift `w.y.shiftRight(24)` is arithmetically identical and works. The cause was not root-caused; the comment on `cls` in `pointMaterial.ts` records it.
+
+### Kernels (`compute/wgsl/select.ts`, `bench/cpuReference.ts`)
+`pcvLayerOk(masks, segIds, w1, i)` joins the visibility guard of `pcvPickDepthBits` (pick) and `lassoSelect`: class bit `min((w1 >> 24) & 0xff, 31)` of `masks[0]` and bit `seg & 31` of `masks[1 + seg >> 5]`. Both buffers are bound once when the pipeline is built; a mask change is an upload, not a rebind. The CPU reference's `visible(i)` adds the same rule through `isVisible` (`render/layerMasks.ts`). Bench-only `api.selectionClasses()` counts the selection per class (ruling 8).
+
+### Editor (`edit/editor.ts`, `edit/layers.ts`)
+`maskVis()` returns the identity predicate `ALL` while every mask word is `0xffffffff`, else `layerOk(i)`. The subject ops (`isolate`, `hide`, `del`, `split`, segment claim) take it, so a selected point in a hidden layer is not a subject (ruling 6) and unmasked ops keep phase 5's cost. `refresh()` recounts segments (`countSegments`, one pass over `segBytes` + flags, only while segments exist) instead of decrementing inside `del` (ruling 3): count = points carrying the id that are not `DELETED`, so undo/redo of a delete and a re-claim by a newer segment stay correct. Class counts are computed once before `ready` and never change. Undo boundaries: `selectLayer` goes through the ring as a whole-buffer push (a fully masked layer is a no-op with no entry — ruling 11); segment save / delete / rename / recolour and visibility (`setLayerVisible`, `soloLayer`, `showAllLayers`) are outside it. Save, delete and `selectLayer` need `ready()` because they write the byte mirrors; rename, recolour and visibility work any time the buffers exist (ruling 5). `saveSegment` takes the lowest free id, and a reused id starts visible. `deleteSegment` returns its points to id 0 and makes bit 0 visible again, so freed points stay on screen after a segment solo.
+
+### Export / import (`edit/export.ts`, `loader/manifest.ts`, `loader/useLoader.ts`)
+Export adds `segments.bin` (one byte per point, the compacted order of `points.bin`) and two optional manifest fields, `segments` (`{ id, name, color }[]`, every row including count-0 ones — ruling 10) and `segmentsFile`. A plain export has neither key (the phase 5 layout, unchanged); `segments.bin` is stored at level 0 like `points.bin`. `validateManifest` checks both fields when present. On load, `useLoader`'s `finish()` counts classes, fetches `segmentsFile`, checks the length equals `pointCount`, and runs `applySegmentBytes` (copies the bytes into the mirror, drops ids missing from the table with one warning) before it sets `ready` (ruling 4), so `loadMs` includes both. A missing or short `segments.bin` logs `console.warn` and the dataset opens with `segments: []`.
+
+### UI (`ui/LayersPanel.tsx`, `PointCloudViewer.module.css`)
+The Panel and the Layers card share a right-hand column (`.side`: absolute, `top/right/bottom: 8px`, `overflow-y: auto`) that scrolls on its own (ruling 9). The column is `pointer-events: none` and its cards `auto`, so the canvas under the empty part still picks. Rows, eye and footer buttons `preventDefault` on mousedown, so the viewer root keeps focus. The name and colour inputs take focus normally, and the root's `INPUT`/`SELECT` guard in `onKeyDown` stops `Delete` or letters typed there from firing ops (checked: `Delete` in the name input leaves `deleted` at 0). Row click selects (`⇧` add, `⌥` subtract), double-click solos, eye toggles; a segment solo leaves classes visible and hides unsegmented points.
+
+### Measured
+2M (demo, Tasks 5–6, dev server, 1277×860 unless noted):
+- Building-only masks (every class but 6 hidden), 30–70 % lasso: 805,679 selected = `cpuLasso`, `selectionClasses()` keys `["6"]`. All layers visible: 1,676,881 = `cpuLasso` across 6 classes.
+- Two segments (10,392 and 377,707 points) round-trip export → re-open with identical counts and colours; `segments.bin` = `pointCount` bytes; a plain export has neither optional key. A missing `segments.bin` opens with `segments: []` and one console warning. The vite dev server answers 200 + `index.html` for a missing file, so the warning reads "745 bytes for 2000000 points" (caught by the length guard); production answers 404, same path.
+- Class counts of the demo tile: 1: 260,748 · 2: 469,916 · 3: 3,958 · 5: 303,220 · 6: 951,068 · 7: 11,090.
+
+Screenshots (`.playwright-mcp/`, 2M): `f1-original-classmode-before.png` / `f1-original-hide-class6.png` (the chained-shift finding) and `f1-fixed-classmode-before.png` / `f1-fixed-hide-class6.png`, `f2-hide-class2-classmode.png`, `p7-hide-ground.png`, `p7-segments-mode.png`, `p7-solo.png`, `p7-lasso-building-only.png`, `p7-reopen-segments.png`, `p7-layers-select-building.png`, `p7-layers-solo.png`; `docs/media/layers.png` (1280×720, two segments, Segments colour mode).
 
 ## Viewer (phase 2)
 
@@ -195,9 +235,11 @@ Keyboard shortcuts (`F` refit, `H` toggle HUD, `\` held = key list) are bound vi
 | `pick` (Phase 5) | 8 B (`atomic<u32>[2]`: depth bits, index) | 8 B |
 | `polygon` (Phase 5) | 2 KB (`vec2<f32>[256]`) | 2 KB |
 | `chunkTable` (Phase 5) | 2 KB (`vec2<u32>[256]`: offset, visible end) | 2 KB |
+| `segIds` (Phase 7) | 20 MB (`ceil(N/4)×4` B, u8 segment id per point) | 20 MB (`segBytes` mirror, same buffer) |
+| layer masks (Phase 7) | 36 B (`u32[9]`) | 36 B |
 | undo ring (Phase 5) | — | ≤ 256 MB (30 commands; a whole-buffer edit saves N = 20 MB) |
 
-Computed storage total after a 20M build ≈ 394 MB. No other persistent per-point CPU copy: the loader worker transfers each chunk's buffer out and keeps nothing (the CPU bench's subsample copy lives only for the run).
+Computed storage total after a 20M build ≈ 394 MB, ≈ 414 MB with phase 7's `segIds`. No other persistent per-point CPU copy: the loader worker transfers each chunk's buffer out and keeps nothing (the CPU bench's subsample copy lives only for the run).
 
 ### Type deviations
 

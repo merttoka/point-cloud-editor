@@ -21,6 +21,9 @@ Every number in README § Performance cites a row in `docs/bench/<date>-<machine
 8. `browser_console_messages` → must be clean (no errors, no `GPUValidationError`).
 9. Second-browser run (optional, Chrome MCP extension): same steps via the Chrome MCP extension; store as a second file `…-chrome-ext.json`.
 
+## Layers (phase 7)
+- **Layers**: one `browser_evaluate` per dataset, the in-page script in `docs/superpowers/plans/2026-09-26-phase-7-layers.md` Task 8 Step 1 (fresh tab, other tabs closed; it waits for `ready` itself, so no external polling while 160 MB streams). Row keys `loadMs`, `classCounts`, `frameAll`, `frameBuildingOnly` (every class but 6 hidden), `lasso` vs `cpuSelected` (30–70 % square, building-only masks), `classes` (`selectionClasses()`, expect `{"6": …}`), `saveMs`, `frameSegments`, `frameSolo`, `selectLayerMs`, `selectedGround` (= `classCounts[2]`), `undoDepth`, `undoMs`, `deleteSegMs`, `frameEnd`. Then Export from the toolbar and `unzip -l` the download: `manifest.json`, `points.bin`, `segments.bin` (= `pointCount` bytes). Rows: `docs/bench/2026-09-26-phase-7.json`.
+
 ## Row → README
 | README cell | row key |
 |---|---|
