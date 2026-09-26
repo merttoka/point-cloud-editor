@@ -8,8 +8,9 @@ import { packPoly, type Poly } from '../edit/lasso'
 import { FLAG_DELETED, FLAG_HIDDEN } from '../edit/flags'
 
 // CPU reference for the GPU select kernels: same matrices (api.viewParams from EditRunner), same visibility rule
-// (not hidden/deleted, inside the chunk's budget prefix), same attenuated radius as pickDepth.
-export function createCpuReference(buffers: PointBuffers, manifest: Manifest, api: ViewerApi) {
+// (not hidden/deleted, inside the chunk's budget prefix), same attenuated radius as pickDepth. Installs api.cpuPick /
+// api.cpuLasso and returns the disposer that clears them.
+export function createCpuReference(buffers: PointBuffers, manifest: Manifest, api: ViewerApi): () => void {
   const centroid = centroidOf(manifest.bounds)
   const dq = dequantScale(manifest.bounds), b = manifest.bounds
   const dqMin: [number, number, number] = [b.min[0] - centroid[0], b.min[1] - centroid[1], b.min[2] - centroid[2]]
@@ -28,8 +29,7 @@ export function createCpuReference(buffers: PointBuffers, manifest: Manifest, ap
     }
     return { v, vp: v.viewProj.elements, visible, radiusPx }
   }
-  return {
-    cpuPick: (x: number, y: number) => { const r = ref(); return cpuPick(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, x, y, r.visible, r.radiusPx) },
-    cpuLasso: (poly: Poly) => { const r = ref(); const { data, count } = packPoly(poly); return cpuLasso(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, data, count, r.visible) },
-  }
+  api.cpuPick = (x, y) => { const r = ref(); return cpuPick(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, x, y, r.visible, r.radiusPx) }
+  api.cpuLasso = (poly: Poly) => { const r = ref(); const { data, count } = packPoly(poly); return cpuLasso(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, data, count, r.visible) }
+  return () => { api.cpuPick = undefined; api.cpuLasso = undefined }
 }

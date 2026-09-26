@@ -7,7 +7,7 @@ import { KeysOverlay, LoadingOverlay } from './ui/Overlays'
 import { Toolbar } from './ui/Toolbar'
 import { LassoOverlay } from './ui/LassoOverlay'
 import { keyAction, modeFromEvent } from './ui/keys'
-import { createBenchHandle, type BenchHandle, type BenchHooks } from './bench/handle'
+import { createBenchHandle, type BenchHandle } from './bench/handle'
 import { createCpuReference } from './bench/cpuReference'
 import styles from './PointCloudViewer.module.css'
 import tokens from './theme/tokens.module.css'
@@ -39,19 +39,17 @@ function ViewerInner({ manifestUrl, theme, className, dpr, onApi }: PointCloudVi
   const hudEl = useRef<HTMLDivElement>(null)
   const api = useRef<ViewerApi>({ fit: () => {} }).current
   const loaded = useLoader(manifestUrl, api)
-  // One handle per dataset: built when the loader hands over buffers, so editor/CPU references exist. `hooks` closes
-  // over api.* getters that the <Canvas> runners fill in later, so a handle built before <Scene> mounts still works.
+  // One handle per dataset, built when the loader hands over buffers so the editor and CPU references exist. The handle
+  // reads api.* lazily, so slots the <Canvas> runners fill in later still work. onApi is read through a ref so an inline
+  // callback (a new identity every parent render) neither rebuilds the handle nor re-fires "once per dataset".
+  const onApiRef = useRef(onApi)
+  onApiRef.current = onApi
   useEffect(() => {
-    if (!onApi || !loaded) return
-    const ref = createCpuReference(loaded.buffers, loaded.manifest, api)
-    const hooks: BenchHooks = {
-      editor: loaded.editor,
-      classStats: () => api.classStats?.() ?? Promise.reject(new Error('compute not mounted')),
-      cpuPick: ref.cpuPick, cpuLasso: ref.cpuLasso,
-      renderGpuMs: () => api.renderGpuMs?.() ?? Promise.resolve(null),
-    }
-    onApi(createBenchHandle(store, api, hooks))
-  }, [onApi, loaded, store, api])
+    if (!onApiRef.current || !loaded) return
+    const dispose = createCpuReference(loaded.buffers, loaded.manifest, api)
+    onApiRef.current(createBenchHandle(store, api, loaded.editor))
+    return dispose
+  }, [loaded, store, api])
   const hasGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
   const [showKeys, setShowKeys] = useState(false)      // held `\`; transient, so not in the store
 

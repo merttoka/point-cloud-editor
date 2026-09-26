@@ -4,8 +4,10 @@ import { parseHarnessParams, themeFromMessage, type Theme } from './harness'
 
 // Harness: `?data=<name>` picks `public/data/<name>/` (`full` = 20M set, `export` = a re-opened export); `?dpr=` overrides
 // the canvas pixel ratio; `?bench=1` exposes window.__pcv; `?theme=` sets the initial theme, the Lab page updates it by postMessage.
+declare global { interface Window { __pcv?: BenchHandle } }
+
 const params = parseHarnessParams(window.location.search)
-const attach = (h: BenchHandle) => { (window as unknown as { __pcv?: unknown }).__pcv = h }
+const attach = (h: BenchHandle) => { window.__pcv = h }
 
 export function App() {
   const [theme, setTheme] = useState<Theme>(params.theme)

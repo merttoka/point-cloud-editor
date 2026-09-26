@@ -5,8 +5,8 @@ import { useStore, useViewerStore } from '../state/store'
 import type { ViewerApi } from '../render/Scene'
 
 export function Hud({ el, api }: { el: RefObject<HTMLDivElement | null>; api: ViewerApi }) {
-  const { gl } = useThree()
-  const info = (gl as unknown as WebGPURenderer).info
+  const gl = useThree((s) => s.gl) as unknown as WebGPURenderer
+  const info = gl.info
   const store = useViewerStore()
   const show = useStore((s) => s.showHud)
   const ema = useRef(16)
@@ -14,10 +14,10 @@ export function Hud({ el, api }: { el: RefObject<HTMLDivElement | null>; api: Vi
   const draws = useRef(0)
   useEffect(() => {
     api.frame = () => {
-      const canvas = (gl as unknown as WebGPURenderer).domElement
+      const canvas = gl.domElement
       return { ms: ema.current, fps: 1000 / ema.current, draws: draws.current, width: canvas.clientWidth, height: canvas.clientHeight, dpr: gl.getPixelRatio() }
     }
-    api.canvas = () => (gl as unknown as WebGPURenderer).domElement
+    api.canvas = () => gl.domElement
     return () => { api.frame = undefined; api.canvas = undefined }
   }, [api, gl])
   // info.autoReset is off (renderer factory); read the previous frame's counters, then clear them.

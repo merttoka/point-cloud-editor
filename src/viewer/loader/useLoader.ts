@@ -9,14 +9,9 @@ import { patchEdit, useViewerStore } from '../state/store'
 import { homePose, type ViewerApi } from '../render/Scene'
 import { BENCH_CAP, benchWords, tableSizeFor } from '../compute/params'
 import { dequantScale, WORDS_PER_POINT } from '../format/quant'
+import { download } from '../ui/download'
 
 type BenchResult = { normals: Uint32Array; ao: Uint8Array; n: number } | null
-
-function download(bytes: Uint8Array, name: string) {
-  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }))
-  const a = document.createElement('a'); a.href = url; a.download = name; a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
 
 export interface Loaded {
   manifest: Manifest
@@ -24,25 +19,25 @@ export interface Loaded {
   buffers: PointBuffers
   handle: PointMaterialHandle
   editor: Editor
-  loadT0: number
 }
 
 export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
   const store = useViewerStore()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const uploadLog = useRef<number[]>([])
+  const loadT0 = useRef(0)   // manifest fetch start; read when the worker reports done
 
   useEffect(() => {
     let cancelled = false
     store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 }, loadMs: null })
-    const t0 = performance.now()
+    loadT0.current = performance.now()
     fetchManifest(manifestUrl).then(({ manifest, binUrl }) => {
       if (cancelled) return
       const buffers = createPointBuffers(manifest.pointCount, manifest.chunks.length)
       const handle = createPointMaterial(buffers, manifest, store.get())
       const editor = createEditor(buffers, manifest, store)
       store.set({ manifest })
-      setLoaded({ manifest, binUrl, buffers, handle, editor, loadT0: t0 })
+      setLoaded({ manifest, binUrl, buffers, handle, editor })
     }).catch((err: unknown) => {
       if (!cancelled) store.set({ status: 'error', error: String(err) })
     })
@@ -52,6 +47,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
   useEffect(() => {
     if (!loaded) return
     const { manifest, binUrl, buffers } = loaded
+    const t0 = loadT0.current   // this dataset's; a later manifestUrl swap must not re-base a still-streaming worker's loadMs
     const centroid = centroidOf(manifest.bounds)
     const worker = new Worker(new URL('./loader.worker.ts', import.meta.url), { type: 'module' })
     const chunks: ChunkRef[] = manifest.chunks.map((c, index) => {
@@ -72,7 +68,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
         store.set({ bench: { ...store.get().bench, status: 'cancelled' } })
         benchResolve?.(null); benchResolve = null
       } else if (msg.type === 'exportDone') {
-        download(msg.zip, 'export.zip')
+        download(new Blob([msg.zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), 'export.zip')
         patchEdit(store, { busy: false, message: `exported ${msg.count.toLocaleString()} points` })
       } else if (msg.type === 'exportError') {
         patchEdit(store, { busy: false, message: `export failed: ${msg.message}` })
@@ -85,7 +81,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
         n += 1
         store.set({ loaded: { points, chunks: n } })
       } else if (msg.type === 'done') {
-        store.set({ status: 'ready', loadMs: performance.now() - loaded.loadT0 })
+        store.set({ status: 'ready', loadMs: performance.now() - t0 })
         api.sendCamera = undefined
       } else if (n > 0) {
         // Scene already has geometry on screen — don't tear it down, just surface the error.

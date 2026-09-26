@@ -143,7 +143,8 @@ From a spike with the Lab's exact toolchain (its `package.json` + `package-lock.
 `onApi` receives a `BenchHandle` (`src/viewer/bench/handle.ts`) once the dataset loads: state reads, `setBudget`, `edl`, `orbit`, `lasso`, `record`, `cpuBench`, `verify`, `runAll`, … The standalone harness exposes it only under `?bench=1`:
 
 ```tsx
-const attach = (h: BenchHandle) => { (window as unknown as { __pcv?: unknown }).__pcv = h }
+declare global { interface Window { __pcv?: BenchHandle } }
+const attach = (h: BenchHandle) => { window.__pcv = h }
 <PointCloudViewer manifestUrl={url} onApi={params.bench ? attach : undefined} />
 ```
 

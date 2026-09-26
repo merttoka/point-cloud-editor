@@ -30,13 +30,18 @@ export interface ViewerApi {
   lasso?: (poly: Poly, mode: SelectMode) => Promise<void>                // GPU lasso at CSS px → flags mirror, edit.lasso
   exportZip?: () => Promise<void>                                        // worker compaction + zip → download
   viewParams?: () => ViewParams                                           // the matrices the GPU kernels used (bench CPU reference)
-  classStats?: () => Promise<Record<number, { n: number; nzHist: number[]; aoMean: number }>>   // per-class normals/AO stats (bench handle)
-  renderGpuMs?: () => Promise<number | null>                             // next frame's render-pass GPU ms (bench handle)
-  frame?: () => { ms: number; fps: number; draws: number; width: number; height: number; dpr: number }   // Hud's EMA (bench handle)
-  orbit?: (steps?: number, ms?: number) => Promise<void>                // scripted full turn around the target (bench handle)
-  uploadLog?: () => number[]                                            // per-chunk GPU upload ms (bench handle)
-  canvas?: () => HTMLCanvasElement | null                               // renderer's canvas (bench handle: record())
+  // Bench-only slots (read by bench/handle.ts; producers clear them on unmount).
+  cpuPick?: (x: number, y: number) => number | null                      // CPU reference for the pick kernel
+  cpuLasso?: (poly: Poly) => Uint32Array                                 // CPU reference for the lasso kernel
+  classStats?: () => Promise<ClassStats>                                 // per-class normals/AO stats over the last build
+  renderGpuMs?: () => Promise<number | null>                             // next frame's render-pass GPU ms
+  frame?: () => FrameRow                                                 // Hud's EMA
+  orbit?: (steps?: number, ms?: number) => Promise<void>                // scripted full turn around the target
+  uploadLog?: () => number[]                                            // per-chunk GPU upload ms
+  canvas?: () => HTMLCanvasElement | null                               // renderer's canvas (record())
 }
+export interface FrameRow { ms: number; fps: number; draws: number; width: number; height: number; dpr: number }
+export type ClassStats = Record<number, { n: number; nzHist: number[]; aoMean: number }>   // |n.z| histogram (10 bins) + mean AO per class
 
 const HOME_FOV = 50
 const HOME_DIR = new THREE.Vector3(1, -1, 0.8).normalize()

@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber'
 import type * as THREE from 'three/webgpu'
 import type { Manifest } from '../loader/manifest'
 import type { PointBuffers } from '../render/PointBuffers'
-import type { ViewerApi } from '../render/Scene'
+import type { ClassStats, ViewerApi } from '../render/Scene'
 import { useViewerStore } from '../state/store'
 import { octDecode } from './cpu/normals'
 import { createComputePipeline } from './pipeline'
@@ -27,11 +27,10 @@ export function ComputeRunner({ buffers, manifest, api }: { buffers: PointBuffer
       }
     }
     api.readback = () => p.readback()
-    // Per-class |n.z| histogram (10 bins) and mean AO over the last build (bench handle).
-    const classStats = async () => {
+    api.classStats = async () => {
       const { normals, ao } = await p.readback()
       const q = buffers.qpos.array as Uint32Array
-      const out: Record<number, { n: number; nzHist: number[]; aoMean: number }> = {}
+      const out: ClassStats = {}
       for (let i = 0; i < buffers.count; i++) {
         const cls = q[i * 2 + 1] >>> 24
         const nz = Math.abs(octDecode(normals[i])[2])
@@ -41,7 +40,6 @@ export function ComputeRunner({ buffers, manifest, api }: { buffers: PointBuffer
       for (const s of Object.values(out)) { s.aoMean /= s.n; s.nzHist = s.nzHist.map((v) => v / s.n) }
       return out
     }
-    api.classStats = classStats
     return () => {
       api.build = undefined; api.readback = undefined; api.classStats = undefined
       p.dispose()
