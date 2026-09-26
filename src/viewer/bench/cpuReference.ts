@@ -3,7 +3,7 @@ import type { PointBuffers } from '../render/PointBuffers'
 import type { ViewerApi } from '../render/Scene'
 import { centroidOf } from '../loader/manifest'
 import { dequantScale } from '../format/quant'
-import { cpuLasso, cpuPick, decodeWorld, projectPoint } from '../edit/project'
+import { cpuLasso, cpuPick, decodeWorld } from '../edit/project'
 import { packPoly, type Poly } from '../edit/lasso'
 import { FLAG_DELETED, FLAG_HIDDEN } from '../edit/flags'
 
@@ -31,6 +31,5 @@ export function createCpuReference(buffers: PointBuffers, manifest: Manifest, ap
   return {
     cpuPick: (x: number, y: number) => { const r = ref(); return cpuPick(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, x, y, r.visible, r.radiusPx) },
     cpuLasso: (poly: Poly) => { const r = ref(); const { data, count } = packPoly(poly); return cpuLasso(q, buffers.count, dq, dqMin, r.vp, r.v.width, r.v.height, data, count, r.visible) },
-    depthOf: (i: number) => { const r = ref(); const [x, y, z] = decodeWorld(q, i, dq, dqMin); return projectPoint(x, y, z, r.vp, r.v.width, r.v.height)?.[2] ?? null },
   }
 }
