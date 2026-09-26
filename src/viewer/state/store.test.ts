@@ -50,3 +50,13 @@ describe('createStore', () => {
     expect(initialState.edit.busy).toBe(false)
   })
 })
+
+describe('loadMs', () => {
+  it('starts null and is a top-level key (merged by set)', () => {
+    const s = createStore(initialState)
+    expect(s.get().loadMs).toBeNull()
+    s.set({ loadMs: 412.5 })
+    expect(s.get().loadMs).toBe(412.5)
+    expect(s.get().status).toBe('idle')
+  })
+})

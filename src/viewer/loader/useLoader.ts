@@ -27,6 +27,7 @@ export interface Loaded {
   buffers: PointBuffers
   handle: PointMaterialHandle
   editor: Editor
+  loadT0: number
 }
 
 export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
@@ -36,14 +37,15 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
 
   useEffect(() => {
     let cancelled = false
-    store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 } })
+    store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 }, loadMs: null })
+    const t0 = performance.now()
     fetchManifest(manifestUrl).then(({ manifest, binUrl }) => {
       if (cancelled) return
       const buffers = createPointBuffers(manifest.pointCount, manifest.chunks.length)
       const handle = createPointMaterial(buffers, manifest, store.get())
       const editor = createEditor(buffers, manifest, store)
       store.set({ manifest })
-      setLoaded({ manifest, binUrl, buffers, handle, editor })
+      setLoaded({ manifest, binUrl, buffers, handle, editor, loadT0: t0 })
     }).catch((err: unknown) => {
       if (!cancelled) store.set({ status: 'error', error: String(err) })
     })
@@ -91,9 +93,8 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
         n += 1
         store.set({ loaded: { points, chunks: n } })
       } else if (msg.type === 'done') {
-        store.set({ status: 'ready' })
+        store.set({ status: 'ready', loadMs: performance.now() - loaded.loadT0 })
         api.sendCamera = undefined
-        if (import.meta.env.DEV) (window as unknown as { __pcvUploadMs?: number[] }).__pcvUploadMs = uploadLog.current
       } else if (n > 0) {
         // Scene already has geometry on screen — don't tear it down, just surface the error.
         store.set({ error: msg.message })
@@ -105,6 +106,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
     const start: LoaderIn = { type: 'start', binUrl, chunks, pos: homePose(manifest).pos }
     worker.postMessage(start)
     api.sendCamera = (pos) => { const m: LoaderIn = { type: 'camera', pos }; worker.postMessage(m) }
+    api.uploadLog = () => uploadLog.current.slice()
     api.cpuBench = (radius) => {
       if (benchResolve) return Promise.resolve(null)
       const words = benchWords(buffers.qpos.array as Uint32Array, manifest.chunks, Math.min(manifest.pointCount, BENCH_CAP))
@@ -162,6 +164,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       worker.onmessage = null
       worker.terminate()
       api.sendCamera = undefined
+      api.uploadLog = undefined
       api.cpuBench = undefined; api.cancelBench = undefined; api.exportZip = undefined
       benchResolve?.(null); benchResolve = null
       // Terminating mid-export drops its exportDone; release the gate so a new dataset's toolbar isn't locked.

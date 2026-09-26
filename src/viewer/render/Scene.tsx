@@ -32,6 +32,10 @@ export interface ViewerApi {
   viewParams?: () => ViewParams                                           // DEV: the matrices the GPU kernels used (CPU reference)
   cpuPick?: (x: number, y: number) => number | null                      // DEV reference (useLoader)
   cpuLasso?: (poly: Poly) => Uint32Array                                 // DEV reference (useLoader)
+  frame?: () => { ms: number; fps: number; draws: number; width: number; height: number; dpr: number }   // Hud's EMA (bench handle)
+  orbit?: (steps?: number, ms?: number) => Promise<void>                // scripted full turn around the target (bench handle)
+  uploadLog?: () => number[]                                            // per-chunk GPU upload ms (bench handle)
+  canvas?: () => HTMLCanvasElement | null                               // renderer's canvas (bench handle: record())
 }
 
 const HOME_FOV = 50
@@ -64,6 +68,23 @@ function CameraRig({ manifest, handle, api }: { manifest: Manifest; handle: Poin
     }
     api.fit = fit
     fit()
+    // One full turn around the target in `steps` frames spread over `ms`; each step goes through controls.update()
+    // so damping and the loader's camera-priority path see it exactly like a user drag.
+    api.orbit = async (steps = 20, ms = 2000) => {
+      const c = controls.current
+      if (!c) return
+      const cam = camera as THREE.PerspectiveCamera
+      const offset = new THREE.Vector3().subVectors(cam.position, c.target)
+      const axis = cam.up.clone().normalize()
+      for (let i = 1; i <= steps; i++) {
+        offset.applyAxisAngle(axis, (2 * Math.PI) / steps)
+        cam.position.copy(c.target).add(offset)
+        cam.lookAt(c.target)
+        c.update()
+        await new Promise((r) => setTimeout(r, ms / steps))
+      }
+    }
+    return () => { api.orbit = undefined }
   }, [camera, manifest, handle, api])
   // Throttled camera position to the loader (100 ms) for chunk prioritisation.
   useFrame(() => {
@@ -154,7 +175,7 @@ export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr, acce
       <DatasetLimitCheck buffers={buffers} />
       <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} accent={accent} />
       <CameraRig manifest={manifest} handle={handle} api={api} />
-      <Hud el={hudEl} />
+      <Hud el={hudEl} api={api} />
       <PostPass />
       <ComputeRunner buffers={buffers} manifest={manifest} api={api} />
       <EditRunner buffers={buffers} manifest={manifest} editor={editor} api={api} />
