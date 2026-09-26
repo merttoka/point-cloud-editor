@@ -7,6 +7,15 @@
 
 ## Proxy / iframe
 
+### Deploy order
+
+The proxy makes the `*.vercel.app` host same-origin with `lab.merttoka.com`; `*.vercel.app` names are claimed globally, so pushing the Lab route before the project is owned would hand a stranger who later claims that name same-origin access to Lab storage. Order:
+
+1. Create and own the Vercel project `point-cloud-editor`.
+2. Confirm its exact production URL equals the Lab route's `dest`.
+3. `tools/.venv/bin/python tools/check_hosting.py --no-cors https://point-cloud-editor.vercel.app/point-cloud/app/data/full/points.bin` passes `range 206`.
+4. Only then push the Lab.
+
 The standalone app is built with `base: '/point-cloud/app/'` and deployed at `https://point-cloud-editor.vercel.app` (data under `/point-cloud/app/data/{demo,full}/`). The Lab's `vercel.json` routes it through its own origin; the routes must come **before** `{ "handle": "filesystem" }` so the SPA fallback never swallows them. Excerpt (the Lab's other routes omitted):
 
 ```json

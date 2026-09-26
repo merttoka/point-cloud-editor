@@ -1,5 +1,7 @@
 # Point Cloud Editor
 
+[![Point cloud editor](docs/media/overview.png)](docs/media/hero.webm)
+
 <video src="docs/media/hero.webm" poster="docs/media/overview.png" autoplay loop muted playsinline controls width="100%">
   <source src="docs/media/hero.webm" type="video/webm">
   <source src="docs/media/hero.mp4" type="video/mp4">
@@ -21,9 +23,9 @@ It started as a portfolio piece: can a browser handle a real city block of LiDAR
 ## Live
 
 - **https://lab.merttoka.com/point-cloud** (Lab page with iframe; goes live once the Lab commit is pushed)
-- Standalone: https://point-cloud-editor.vercel.app/point-cloud/app/ (`?data=full` loads the 20M set, 160 MB)
+- Standalone: https://point-cloud-editor.vercel.app/point-cloud/app/ (pending deploy; `?data=full` loads the 20M set, 160 MB)
 
-Needs a browser with WebGPU (measured in Chrome 153); without it the page shows "WebGPU not available in this browser."
+Needs a browser with WebGPU (measured in Chrome 153); without it the page shows "WebGPU not available in this browser." Deploy order and why it matters: `docs/EMBEDDING.md` § Proxy / iframe › Deploy order.
 
 ## Controls
 | Input | Action |

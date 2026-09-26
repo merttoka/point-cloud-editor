@@ -19,7 +19,7 @@ Every number in README § Performance cites a row in `docs/bench/<date>-<machine
    `async () => JSON.stringify(await __pcv.cpuBench())` and `async () => JSON.stringify(await __pcv.verify())` → fill `cpuBench`, `verify`.
 7. GPU-process RSS after (same `ps` line) → row `rssDeltaKB` (added by hand; not part of `runAll`).
 8. `browser_console_messages` → must be clean (no errors, no `GPUValidationError`).
-9. Headed run (optional): same steps in Chrome via the Chrome MCP; store as a second file `…-headed.json`.
+9. Second-browser run (optional, Chrome MCP extension): same steps via the Chrome MCP extension; store as a second file `…-chrome-ext.json`.
 
 ## Row → README
 | README cell | row key |
