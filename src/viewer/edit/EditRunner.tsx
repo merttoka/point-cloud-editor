@@ -31,7 +31,7 @@ export function EditRunner({ buffers, manifest, editor, api }: { buffers: PointB
         pointSize: store.get().pointSize, refDist: homePose(manifest, camera.fov).dist, budget: store.get().budget }
     }
     const patch = (e: Parameters<typeof patchEdit>[1]) => patchEdit(store, e)
-    if (import.meta.env.DEV) api.viewParams = params   // the CPU reference in useLoader projects with the same matrices
+    api.viewParams = params   // the bench CPU reference projects with the same matrices
     api.pick = async (x, y, mode) => {
       if (!editor.ready()) return
       patch({ busy: true })

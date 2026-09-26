@@ -29,9 +29,9 @@ export interface ViewerApi {
   pick?: (x: number, y: number, mode: SelectMode) => Promise<void>       // GPU pick at CSS px → editor.pick, edit.pickMs
   lasso?: (poly: Poly, mode: SelectMode) => Promise<void>                // GPU lasso at CSS px → flags mirror, edit.lasso
   exportZip?: () => Promise<void>                                        // worker compaction + zip → download
-  viewParams?: () => ViewParams                                           // DEV: the matrices the GPU kernels used (CPU reference)
-  cpuPick?: (x: number, y: number) => number | null                      // DEV reference (useLoader)
-  cpuLasso?: (poly: Poly) => Uint32Array                                 // DEV reference (useLoader)
+  viewParams?: () => ViewParams                                           // the matrices the GPU kernels used (bench CPU reference)
+  classStats?: () => Promise<Record<number, { n: number; nzHist: number[]; aoMean: number }>>   // per-class normals/AO stats (bench handle)
+  renderGpuMs?: () => Promise<number | null>                             // next frame's render-pass GPU ms (bench handle)
   frame?: () => { ms: number; fps: number; draws: number; width: number; height: number; dpr: number }   // Hud's EMA (bench handle)
   orbit?: (steps?: number, ms?: number) => Promise<void>                // scripted full turn around the target (bench handle)
   uploadLog?: () => number[]                                            // per-chunk GPU upload ms (bench handle)
@@ -176,7 +176,7 @@ export function Scene({ buffers, manifest, handle, editor, api, hudEl, dpr, acce
       <ChunkSprites buffers={buffers} manifest={manifest} handle={handle} accent={accent} />
       <CameraRig manifest={manifest} handle={handle} api={api} />
       <Hud el={hudEl} api={api} />
-      <PostPass />
+      <PostPass api={api} />
       <ComputeRunner buffers={buffers} manifest={manifest} api={api} />
       <EditRunner buffers={buffers} manifest={manifest} editor={editor} api={api} />
     </Canvas>
