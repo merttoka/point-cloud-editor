@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "data:demo": "node scripts/fetch-data.mjs demo",
-    "data:full": "node scripts/fetch-data.mjs full"
+    "data:full": "node scripts/fetch-data.mjs full",
+    "build:vercel": "npm run data:demo && npm run data:full && npm run build"
   },
   "dependencies": {
     "@react-three/drei": "10.7.8",

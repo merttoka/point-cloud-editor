@@ -25,7 +25,7 @@ Build wall time: 121–130 ms at 2M, 2.54 s at 20M (six `computeAsync` + timesta
 ## Setup
 ```bash
 npm install
-npm run dev        # Chrome with WebGPU
+npm run dev        # Chrome with WebGPU → http://localhost:5173/point-cloud/app/
 npm test
 npm run build
 ```
@@ -64,9 +64,11 @@ Preprocess of the raw tile (51,494,885 points → 20M + 2M) takes 8.3 s on an M4
 ## Usage
 ```bash
 npm run data:demo   # fetch the 2M demo set into public/data/demo/ (release asset)
-npm run dev         # Chrome with WebGPU → http://localhost:5173
+npm run dev         # Chrome with WebGPU → http://localhost:5173/point-cloud/app/
 ```
 `<PointCloudViewer manifestUrl="/data/demo/manifest.json" theme="dark" />` — `theme?: 'dark' | 'light'`, `className?`, `dpr?: number` (canvas pixel ratio override; default device-clamped `[1, 2]`; the dev harness's `?dpr=` clamps to `[0.5, 4]`).
+
+Dev harness query params (append to the dev/preview URL above): `?bench=1` exposes `window.__pcv` for scripted benches; `?data=full` loads the 20M set instead of the 2M demo; `?theme=dark|light` sets the initial theme; `?dpr=0.5–4` overrides the canvas pixel ratio.
 
 ## Controls
 | Input | Action |

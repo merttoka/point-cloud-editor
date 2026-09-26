@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [ { "source": "/point-cloud/app/:path*", "destination": "/:path*" } ],
+  "headers": [
+    { "source": "/point-cloud/app/data/(.*)", "headers": [
+      { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+      { "key": "Access-Control-Allow-Origin", "value": "https://lab.merttoka.com" } ] }
+  ]
+}

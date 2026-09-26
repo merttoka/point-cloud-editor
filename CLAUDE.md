@@ -31,5 +31,6 @@ Clean-room WebGPU point cloud viewer/editor (three 0.186 `three/webgpu` + TSL, R
 - Rebuild: `tools/.venv` (`pip install -r tools/requirements.txt`), tile zip downloaded in a browser (Cloudflare challenge; Chrome MCP was not connected last time), `tools/fetch.py --import`, `tools/preprocess.py … --max-points 20000000 --demo 2000000`. Raw `.las` lives in `data/raw/` (gitignored, may be deleted).
 
 ## Environment
+- Dev URL: `http://localhost:5173/point-cloud/app/` (`vite.config.ts` `base: '/point-cloud/app/'`, matches the Vercel deploy path).
 - M4 Max, Chromium via Playwright MCP, DPR 1. Vsync cap 240 Hz (4.17 ms floor). Playwright console buffer caps ~184 entries; don't poll the page in tight external loops while 160 MB streams (tab crashes) — use one in-page loop or `browser_wait_for`.
 - Chrome MCP extension is optional; if unavailable ask the user to download by hand.
