@@ -2,6 +2,7 @@ import { StorageBufferAttribute } from 'three/webgpu'
 import type { StorageBufferNode } from 'three/webgpu'
 import { storage } from 'three/tsl'
 import { WORDS_PER_POINT } from '../format/quant'
+import { createLayerMasks, type LayerMasks } from './layerMasks'
 
 export const FLAG_HIDDEN = 1
 export const FLAG_SELECTED = 2
@@ -23,6 +24,11 @@ export interface PointBuffers {
   uploadRange(offset: number, words: Uint32Array): void
   flagBytes: Uint8Array        // byte i = point i; view over flags.array.buffer (CPU source of truth for edits)
   uploadFlagsRange(minIdx: number, maxIdx: number): void   // inclusive point indices → one word-aligned update range
+  segIds: StorageBufferAttribute   // u8 segment id per point packed 4/word (0 = none); CPU writes only
+  segIdsNode: StorageBufferNode<'uint'>
+  segBytes: Uint8Array             // byte i = point i; view over segIds.array.buffer
+  uploadSegRange(minIdx: number, maxIdx: number): void   // inclusive point indices → one word-aligned update range
+  masks: LayerMasks                // class / segment visibility (read by the vertex stage and the select kernels)
   dispose(): void
 }
 
@@ -38,6 +44,10 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
   const normalsNode = storage(normals, 'uint', count)
   const aoNode = storage(ao, 'uint', flagWords)
   const flagBytes = new Uint8Array(flags.array.buffer)
+  const segIds = new StorageBufferAttribute(new Uint32Array(flagWords), 1)
+  const segIdsNode = storage(segIds, 'uint', flagWords)
+  const segBytes = new Uint8Array(segIds.array.buffer)
+  const masks = createLayerMasks()
   return {
     count, qpos, flags, normals, ao, qposNode, flagsNode, normalsNode, aoNode,
     loaded: new Uint8Array(chunkCount),
@@ -52,6 +62,12 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
       flags.addUpdateRange(w0, w1 - w0 + 1)
       flags.needsUpdate = true
     },
+    segIds, segIdsNode, segBytes, masks,
+    uploadSegRange(minIdx, maxIdx) {
+      const w0 = minIdx >> 2, w1 = maxIdx >> 2
+      segIds.addUpdateRange(w0, w1 - w0 + 1)
+      segIds.needsUpdate = true
+    },
     dispose() {
       // Known limitation: Node.dispose() only emits an event, and r3f 9.7 never calls gl.dispose() on a
       // WebGPURenderer at <Canvas> unmount (it only tries renderLists/forceContextLoss, which don't exist on it),
@@ -60,6 +76,8 @@ export function createPointBuffers(count: number, chunkCount: number): PointBuff
       flagsNode.dispose()
       normalsNode.dispose()
       aoNode.dispose()
+      segIdsNode.dispose()
+      masks.node.dispose()
     },
   }
 }

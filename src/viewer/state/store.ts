@@ -1,7 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react'
 import type { Manifest } from '../loader/manifest'
 
-export type ColorMode = 'height' | 'intensity' | 'class'
+export type ColorMode = 'height' | 'intensity' | 'class' | 'segments'
 export type Colormap = 'viridis' | 'turbo' | 'grayscale'
 
 export interface EdlState { enabled: boolean; radiusPx: number; strength: number }
@@ -41,6 +41,13 @@ export interface EditState {
   message?: string
 }
 
+export interface Segment { id: number; name: string; color: string /* #rrggbb */; count: number; visible: boolean }
+export interface LayersState {
+  classCounts: Record<number, number>     // whole class, computed once at ready; only classes with points get rows
+  classVisible: Record<number, boolean>   // absent = visible
+  segments: Segment[]
+}
+
 export interface ViewerState {
   manifest: Manifest | null
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -57,6 +64,7 @@ export interface ViewerState {
   compute: ComputeState
   bench: BenchState
   edit: EditState
+  layers: LayersState
 }
 
 export const initialState: ViewerState = {
@@ -84,6 +92,7 @@ export const initialState: ViewerState = {
     lasso: null,
     pickMs: null,
   },
+  layers: { classCounts: {}, classVisible: {}, segments: [] },
 }
 
 export interface Store<T> {
@@ -110,6 +119,7 @@ export function createStore<T extends object>(initial: T): Store<T> {
 
 // The store merges top-level keys only; every `edit` write goes through here.
 export const patchEdit = (store: Store<ViewerState>, p: Partial<EditState>) => store.set({ edit: { ...store.get().edit, ...p } })
+export const patchLayers = (store: Store<ViewerState>, p: Partial<LayersState>) => store.set({ layers: { ...store.get().layers, ...p } })
 
 export const StoreContext = createContext<Store<ViewerState> | null>(null)
 

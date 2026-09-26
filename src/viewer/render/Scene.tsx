@@ -34,6 +34,7 @@ export interface ViewerApi {
   cpuPick?: (x: number, y: number) => number | null                      // CPU reference for the pick kernel
   cpuLasso?: (poly: Poly) => Uint32Array                                 // CPU reference for the lasso kernel
   classStats?: () => Promise<ClassStats>                                 // per-class normals/AO stats over the last build
+  selectionClasses?: () => Record<number, number>                       // selected count per class (CPU pass over the mirror)
   renderGpuMs?: () => Promise<number | null>                             // next frame's render-pass GPU ms
   frame?: () => FrameRow                                                 // Hud's EMA
   orbit?: (steps?: number, ms?: number) => Promise<void>                // scripted full turn around the target

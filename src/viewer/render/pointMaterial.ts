@@ -19,7 +19,7 @@ export interface PointMaterialHandle {
   dispose(): void
 }
 
-const MODE: Record<ColorMode, number> = { height: 0, intensity: 1, class: 2 }
+const MODE: Record<ColorMode, number> = { height: 0, intensity: 1, class: 2, segments: 3 }
 const SHADING: Record<Shading, number> = { flat: 0, lit: 1, litAo: 2, normals: 3 }
 
 // `init` seeds the uniforms/LUT from the store snapshot so the material never carries its own copy of the defaults.

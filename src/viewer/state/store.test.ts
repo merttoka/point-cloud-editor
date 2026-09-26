@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createStore, initialState } from './store'
+import { createStore, initialState, patchLayers } from './store'
 
 describe('createStore', () => {
   it('get returns initial state', () => {
@@ -48,6 +48,13 @@ describe('createStore', () => {
     expect(initialState.edit.tool).toBe('orbit')
     expect(initialState.edit.counts).toEqual({ selected: 0, hidden: 0, deleted: 0, split: 0 })
     expect(initialState.edit.busy).toBe(false)
+  })
+  it('starts with empty layers and patchLayers merges one key', () => {
+    const s = createStore(initialState)
+    expect(s.get().layers).toEqual({ classCounts: {}, classVisible: {}, segments: [] })
+    patchLayers(s, { classCounts: { 2: 5 } })
+    expect(s.get().layers.classCounts).toEqual({ 2: 5 })
+    expect(s.get().layers.segments).toEqual([])
   })
 })
 
