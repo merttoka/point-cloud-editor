@@ -49,9 +49,13 @@ export function createPointMaterial(
   const z = w.y.bitAnd(uint(0xffff))
   const packed = w.y.shiftRight(uint(16))
   const intensity = packed.bitAnd(uint(0xff))
-  // Single shift straight from w.y, not packed.shiftRight(8): chaining a second dynamic shiftRight onto an
-  // already-shifted node compiled wrong here (class mask/LUT silently no-op'd on every point but 0) — found
-  // while wiring the layer mask in Task 4; a lone shift from the source word avoids whatever the reuse triggers.
+  // `cls` was `packed.shiftRight(uint(8)).bitAnd(uint(0xff))` (packed = w.y.shiftRight(16), so a second dynamic
+  // shiftRight chained onto an already-shifted node). Observed on this machine (three 0.186.0, WebGPU): with that
+  // form, classification colour mode rendered every point the same flat grey (no per-class colours at all) and
+  // the layer-mask class bit never gated any point, both confirmed on a fresh reload with no other state. A single
+  // shift straight from the source word — arithmetically identical — did not reproduce either symptom. The cause
+  // was not root-caused (no minimal repro outside this file, no matching upstream issue found); this form is the
+  // one verified to work here, not a general claim about how TSL/WebGPU compiles chained shifts.
   const cls = w.y.shiftRight(uint(24)).bitAnd(uint(0xff))
 
   // Byte `gi` of a u8-packed word buffer (flags, ao): word gi >> 2, shift (gi & 3) * 8.
