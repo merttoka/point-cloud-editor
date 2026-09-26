@@ -4,7 +4,9 @@ Every number in README § Performance cites a row in `docs/bench/<date>-<machine
 `browser_evaluate` per dataset; nothing polls the page while the full set streams.
 
 ## Environment (record in the row's `env` and in the JSON file name)
-- Machine, macOS, Chromium version (`navigator.userAgent` is in the row), Playwright MCP headless, DPR 1 (`?dpr=1`), point size 2 px.
+- Machine, macOS, Chromium version (`navigator.userAgent` is in the row), Playwright MCP (runs a headed Chrome window), DPR 1 (`?dpr=1`), point size 2 px, viewport 1277×860 (`browser_resize`).
+- Close every other tab first (`browser_tabs`): the dev-server smoke row, taken with earlier tabs open, read a 2M compute total of 142 ms against 82 ms in a clean browser.
+- The frame floor is the refresh rate of the display the window sits on (4.17 ms at 240 Hz, 8.33 ms at 120 Hz); check with `setBudget(0.05)` — if the frame doesn't drop, it's vsync.
 - Serve the production build: `npm run build && npm run preview` → `http://localhost:4173/point-cloud/app/`.
 
 ## Per dataset
@@ -32,5 +34,6 @@ Every number in README § Performance cites a row in `docs/bench/<date>-<machine
 
 ## Media
 - `hero.webm`: on the demo, `browser_evaluate` `async () => { const p = __pcv.record(12, 'hero.webm'); await __pcv.orbit(60, 6000); await __pcv.lasso([[300,200],[900,200],[900,600],[300,600]]); __pcv.editor.split(); await __pcv.settle(1500); __pcv.edl(false); await __pcv.settle(1500); __pcv.edl(true); return JSON.stringify(await p) }` → file lands in the Playwright download dir (`.playwright-mcp/`). Then `ffmpeg -i hero.webm -c:v libvpx-vp9 -b:v 1.5M -vf scale=1280:-2 docs/media/hero.webm` and `ffmpeg -i hero.webm -c:v libx264 -crf 23 -pix_fmt yuv420p -vf scale=1280:-2 docs/media/hero.mp4`.
+  `record()` worked in the Playwright Chrome (VP9, 1280×720 @ 30 fps, ~4.3 MB raw → 1.9 MB webm / 0.7 MB mp4); the download lands in `.playwright-mcp/hero.webm`. Add `-an` to both ffmpeg calls.
 - PNGs: `browser_resize` 1280×720, `browser_take_screenshot` for overview / classification / normals+AO / lasso / split.
 - Fallback if `record()` rejects (no MediaRecorder): 30 screenshots during `orbit(30, 6000)` → `ffmpeg -framerate 5 -i frame_%02d.png …`.
