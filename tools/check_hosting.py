@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Probe a hosted points.bin the way the viewer's loader will use it: Range GET + CORS on every hop."""
+"""Probe a hosted points.bin the way the viewer's loader will use it: Range GET + CORS on every hop.
+
+--no-cors: same-origin deployments (the viewer is served next to its data), where only Range matters.
+"""
 from __future__ import annotations
 
 import sys
@@ -51,11 +54,12 @@ def walk(url: str, origin: str, max_hops: int = 10) -> list[Hop]:
     return hops
 
 
-def evaluate(hops: list[Hop], origin: str) -> list[tuple[str, bool, str]]:
+def evaluate(hops: list[Hop], origin: str, cors: bool = True) -> list[tuple[str, bool, str]]:
     res: list[tuple[str, bool, str]] = []
-    for i, h in enumerate(hops):
-        acao = h.headers.get("access-control-allow-origin")
-        res.append((f"cors hop {i + 1}", acao in ("*", origin), f"{h.status} {h.url} → access-control-allow-origin: {acao}"))
+    if cors:
+        for i, h in enumerate(hops):
+            acao = h.headers.get("access-control-allow-origin")
+            res.append((f"cors hop {i + 1}", acao in ("*", origin), f"{h.status} {h.url} → access-control-allow-origin: {acao}"))
     last = hops[-1]
     res.append(("range 206", last.status == 206, f"status {last.status}"))
     cr = last.headers.get("content-range", "")
@@ -66,15 +70,17 @@ def evaluate(hops: list[Hop], origin: str) -> list[tuple[str, bool, str]]:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    cors = "--no-cors" not in argv
+    argv = [a for a in argv if a != "--no-cors"]
     if len(argv) != 1:
-        print("usage: check_hosting.py URL", file=sys.stderr)
+        print("usage: check_hosting.py [--no-cors] URL", file=sys.stderr)
         return 2
     origin = "https://example.com"
     hops = walk(argv[0], origin)
     for h in hops:
         print(f"{h.status} {h.url}")
     failed = False
-    for name, ok, detail in evaluate(hops, origin):
+    for name, ok, detail in evaluate(hops, origin, cors=cors):
         print(f"{'PASS' if ok else 'FAIL'}  {name}: {detail}")
         failed |= not ok
     return 1 if failed else 0
