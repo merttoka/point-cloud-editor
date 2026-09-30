@@ -73,13 +73,11 @@ export type LutKind = 'viridis' | 'turbo' | 'grayscale' | 'class' | 'segments'
 
 export function buildLut(kind: LutKind): Uint8Array {
   const out = new Uint8Array(256 * 4)
+  const none = hexToRgb(SEGMENT_NONE)
   for (let i = 0; i < 256; i++) {
     let rgb: RGB
-    if (kind === 'segments') {
-      const c = hexToRgb(SEGMENT_NONE)
-      rgb = [c[0] / 255, c[1] / 255, c[2] / 255]
-    } else if (kind === 'class') {
-      const c = ASPRS_COLORS[i] ?? ASPRS_COLORS[-1]
+    if (kind === 'segments' || kind === 'class') {
+      const c = kind === 'segments' ? none : ASPRS_COLORS[i] ?? ASPRS_COLORS[-1]
       rgb = [c[0] / 255, c[1] / 255, c[2] / 255]
     } else {
       const f = kind === 'viridis' ? viridis : kind === 'turbo' ? turbo : grayscale

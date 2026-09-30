@@ -1,13 +1,13 @@
 import type { PointBuffers } from '../render/PointBuffers'
 import type { Manifest } from '../loader/manifest'
 import { patchEdit, patchLayers, type SelectMode, type Segment, type Store, type ViewerState } from '../state/store'
-import { allVisible, classBit, fillVisible, isVisible, setBit } from '../render/layerMasks'
+import { allVisible, fillVisible, isVisible, setClassVisible, setSegmentVisible } from '../render/layerMasks'
 import { dequantScale } from '../format/quant'
 import { spacingOf } from '../compute/params'
 import { scanFlags, unionRange, FLAG_SELECTED, FLAG_HIDDEN, FLAG_DELETED, type Range } from './flags'
 import { createUndoRing } from './undo'
 import * as ops from './ops'
-import { ALL, claimSegment, countSegments, freeSegmentId, layerMember, releaseSegment, selectLayer as selectLayerBytes, SEGMENT_PALETTE, type Layer, type Vis } from './layers'
+import { ALL, claimSegment, classOf, countSegments, freeSegmentId, layerMember, releaseSegment, selectLayer as selectLayerBytes, SEGMENT_PALETTE, type Layer, type Vis } from './layers'
 import { fitPlane, samplePoints, signedDistance } from './plane'
 
 export interface Editor {
@@ -47,7 +47,7 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
   const masks = buffers.masks
   const layers = () => store.get().layers
   // Layer visibility of point i (class bit ∧ segment bit); identity while nothing is masked so unmasked ops keep phase 5's cost.
-  const layerOk = (i: number) => isVisible(masks.words, q[i * 2 + 1] >>> 24, seg[i])
+  const layerOk = (i: number) => isVisible(masks.words, classOf(q, i), seg[i])
   const maskVis = (): Vis => allVisible(masks.words) ? ALL : layerOk
   let selRange: Range | null = null
   const patch = (p: Partial<ViewerState['edit']>) => patchEdit(store, p)
@@ -95,9 +95,8 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
     return { pts, n }
   }
 
-  const segWord = (id: number) => 1 + (id >> 5)
-  const setMaskSegment = (id: number, on: boolean) => setBit(masks.words, segWord(id), id & 31, on)
-  const setMaskClass = (cls: number, on: boolean) => setBit(masks.words, 0, classBit(cls), on)
+  const setMaskSegment = (id: number, on: boolean) => setSegmentVisible(masks.words, id, on)
+  const setMaskClass = (cls: number, on: boolean) => setClassVisible(masks.words, cls, on)
   const patchSegment = (id: number, p: Partial<Segment>) => patchLayers(store, { segments: layers().segments.map((s) => s.id === id ? { ...s, ...p } : s) })
   const classVisibleAll = (on: boolean) => Object.fromEntries(Object.keys(layers().classCounts).map((c) => [c, on])) as Record<number, boolean>
 
@@ -149,11 +148,9 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
       const s: Segment = { id, name: name ?? `Segment ${id}`, color: SEGMENT_PALETTE[(id - 1) % SEGMENT_PALETTE.length], count: r.count, visible: true }
       patchLayers(store, { segments: [...segs, s] })
       patch({ message: undefined })
-      // Dropping the selection lets the new segment colour show at once. clearSel() refreshes through run(), but it
-      // is a no-op when the claim consumed every selected point, so recount here in that case only.
-      const hadSelection = selRange !== null
+      // Dropping the selection lets the new segment colour show at once; the claimed points are still selected, so
+      // clearSel() always runs and its refresh() recounts the segments.
       clearSel()
-      if (!hadSelection) refresh()
       return s
     },
     deleteSegment(id) {

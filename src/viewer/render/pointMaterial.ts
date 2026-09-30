@@ -54,7 +54,7 @@ export function createPointMaterial(
   // Byte `gi` of a u8-packed word buffer (flags, ao): word gi >> 2, shift (gi & 3) * 8.
   const byteOf = (words: PointBuffers['flagsNode']) => words.element(gi.shiftRight(uint(2))).shiftRight(gi.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))
   const fbyte = byteOf(buffers.flagsNode)
-  const collapsed = fbyte.bitAnd(uint(FLAG_HIDDEN | FLAG_DELETED)).notEqual(uint(0))
+  const shown = float(1).sub(step(0.5, float(fbyte.bitAnd(uint(FLAG_HIDDEN | FLAG_DELETED)))))   // 0 hidden/deleted, else 1
   const bitF = (bit: number) => float(fbyte.bitAnd(uint(bit))).div(bit)                   // 0 or 1, branchless
   const tint = vertexStage(vec3(bitF(FLAG_SELECTED), bitF(FLAG_SPLIT_A), bitF(FLAG_SPLIT_B)))
   // uniform(Color) is linear; new Color('#hex') decodes sRGB under the default ColorManagement, matching the LUT path.
@@ -65,14 +65,10 @@ export function createPointMaterial(
   // min()'s declared type only covers float/vecN (three's MathNode.d.ts: "TODO Allow int/uint"); the runtime node is
   // dynamically typed regardless, so cast like the userData() read above.
   const minU = min as unknown as (a: Node<'uint'>, b: Node<'uint'>) => Node<'uint'>
-  const sbyte = byteOf(buffers.segIdsNode)
   const mw = buffers.masks.node
-  // The mask reads its own class byte / segment id instead of reusing `cls` / `sbyte`: those two are first used inside
-  // the colour-mode `select` branches, so the builder materialises them there (WGSL dump: `nodeVar5` assigned only
-  // under `mode == 2`, `nodeVar7` only under `mode == 3`) while the size term below is straight-line code after the
-  // branch — outside the matching colour mode it read 0, so every point took class 0's / segment 0's bit (hiding a
-  // class did nothing; a solo cleared bit 0 and blanked the view). Same family as the Phase 0 `select` finding:
-  // a node whose first use sits inside a branch must not be shared with anything outside it.
+  // Own reads, not `cls` / the `tS` segment byte: those are first used inside the colour-mode `select` branches, so
+  // the builder materialises them there and the size term (after the branch) would read 0 outside the matching mode —
+  // every point would take class 0's / segment 0's bit (ARCHITECTURE "Phase 0 spike findings"; check in scripts/bench.md).
   const clsOwn = buffers.qposNode.element(gi).y.shiftRight(uint(24)).bitAnd(uint(0xff))
   const segOwn = byteOf(buffers.segIdsNode)
   const clsBit = mw.element(uint(0)).shiftRight(minU(clsOwn, uint(31))).bitAnd(uint(1))
@@ -106,15 +102,16 @@ export function createPointMaterial(
   const material = new THREE.PointsNodeMaterial()
   material.sizeAttenuation = false
   material.positionNode = vec3(float(x), float(y), float(z)).mul(dqScale).add(dqMinCentred)
-  // Hidden/deleted → size 0 collapses the quad (select sits outside the clamp, so the 1 px floor can't revive it).
+  // Hidden/deleted/masked → size 0 collapses the quad (the factors sit outside the clamp, so the 1 px floor can't revive
+  // it). Multiplies, not select(): a branch here would hold the first read of positionView.
   const sizePx = clamp(pointSize.mul(refDist).div(positionView.z.negate()), 1, 8)
-  material.sizeNode = select(collapsed, float(0), sizePx).mul(layerVisible)
+  material.sizeNode = sizePx.mul(shown).mul(layerVisible)
 
   // Colour: t chosen per mode; wrapped in vertexStage so the storage reads stay in the vertex stage.
   const tH = float(z).div(QMAX)
   const tI = float(intensity).div(255)
   const tC = float(cls).div(255)
-  const tS = float(sbyte).div(255)
+  const tS = float(byteOf(buffers.segIdsNode)).div(255)
   const t = select(mode.equal(1), tI, select(mode.equal(2), tC, select(mode.equal(3), tS, tH)))
   const luts = new Map<LutKind, THREE.DataTexture>()
   const lutFor = (kind: LutKind) => {

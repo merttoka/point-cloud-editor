@@ -1,5 +1,5 @@
-import { useState, type MouseEvent, type SyntheticEvent } from 'react'
-import { useStore, type Segment } from '../state/store'
+import { useState, type MouseEvent, type ReactNode, type SyntheticEvent } from 'react'
+import { useStore } from '../state/store'
 import type { Editor } from '../edit/editor'
 import type { Layer } from '../edit/layers'
 import { ASPRS_COLORS, ASPRS_NAMES } from '../render/colormaps'
@@ -10,6 +10,7 @@ import styles from './LayersPanel.module.css'
 // (and the key map) stays on the viewer root; the name/colour inputs keep default focus and stop the row handlers.
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 const keepFocus = (e: MouseEvent) => e.preventDefault()
+const ROW_HINT = 'click: select · ⇧ add · ⌥ subtract · double-click: solo'
 
 export function LayersPanel({ editor }: { editor: Editor | null }) {
   const manifest = useStore((s) => s.manifest)
@@ -20,11 +21,8 @@ export function LayersPanel({ editor }: { editor: Editor | null }) {
   const [open, setOpen] = useState(true)
   const ready = status === 'ready' && !!editor && !busy
   const classes = Object.keys(layers.classCounts).map(Number).sort((a, b) => a - b)
-  const className = (c: number) => manifest?.classMap[String(c)] ?? ASPRS_NAMES[c] ?? `Class ${c}`
+  const classLabel = (c: number) => manifest?.classMap[String(c)] ?? ASPRS_NAMES[c] ?? `Class ${c}`
   const classRgb = (c: number) => { const [r, g, b] = ASPRS_COLORS[c] ?? ASPRS_COLORS[-1]; return `rgb(${r}, ${g}, ${b})` }
-  const select = (layer: Layer) => (e: MouseEvent) => { if (editor && ready) editor.selectLayer(layer, modeFromEvent(e)) }
-  const solo = (layer: Layer) => () => editor?.soloLayer(layer)
-  const toggle = (layer: Layer, visible: boolean) => (e: MouseEvent) => { stop(e); editor?.setLayerVisible(layer, !visible) }
   return (
     <div className={styles.card}>
       <button className={styles.header} onMouseDown={keepFocus} onClick={() => setOpen((o) => !o)}>Layers <span>{open ? '−' : '+'}</span></button>
@@ -32,21 +30,22 @@ export function LayersPanel({ editor }: { editor: Editor | null }) {
         <>
           <div className={styles.groupTitle}>Classes</div>
           {classes.length === 0 && <div className={styles.muted}>Counted when the load finishes.</div>}
-          {classes.map((c) => {
-            const visible = layers.classVisible[c] !== false
-            return (
-              <div key={c} className={styles.row} data-hidden={!visible} onMouseDown={keepFocus} onClick={select({ class: c })} onDoubleClick={solo({ class: c })} title="click: select · ⇧ add · ⌥ subtract · double-click: solo">
-                <span className={styles.swatch} style={{ background: classRgb(c) }} />
-                <span className={styles.name}>{className(c)}</span>
-                <span className={styles.count}>{layers.classCounts[c].toLocaleString()}</span>
-                <button className={styles.icon} title={visible ? 'Hide' : 'Show'} onMouseDown={keepFocus} onClick={toggle({ class: c }, visible)} onDoubleClick={stop}>{visible ? '●' : '○'}</button>
-              </div>
-            )
-          })}
+          {classes.map((c) => (
+            <LayerRow key={c} layer={{ class: c }} visible={layers.classVisible[c] !== false} count={layers.classCounts[c]} editor={editor} ready={ready}>
+              <span className={styles.swatch} style={{ background: classRgb(c) }} />
+              <span className={styles.name}>{classLabel(c)}</span>
+            </LayerRow>
+          ))}
           <div className={styles.groupTitle}>Segments</div>
           {layers.segments.length === 0 && <div className={styles.muted}>Select points, then save them as a segment.</div>}
           {layers.segments.map((s) => (
-            <SegmentRow key={s.id} s={s} editor={editor} ready={ready} onSelect={select({ segment: s.id })} onSolo={solo({ segment: s.id })} onToggle={toggle({ segment: s.id }, s.visible)} />
+            <LayerRow key={s.id} layer={{ segment: s.id }} visible={s.visible} count={s.count} editor={editor} ready={ready} className={styles.segRow}
+              extra={<button className={styles.icon} title="Delete segment" disabled={!ready} onMouseDown={keepFocus} onClick={(e) => { stop(e); editor?.deleteSegment(s.id) }} onDoubleClick={stop}>×</button>}>
+              <label className={styles.swatch} style={{ background: s.color }} onMouseDown={stop} onClick={stop} onDoubleClick={stop} title="Colour">
+                <input type="color" value={s.color} onChange={(e) => editor?.setSegmentColor(s.id, e.target.value)} />
+              </label>
+              <input className={styles.nameInput} value={s.name} onMouseDown={stop} onClick={stop} onDoubleClick={stop} onChange={(e) => editor?.renameSegment(s.id, e.target.value)} title="Rename" />
+            </LayerRow>
           ))}
           <div className={styles.footer}>
             <button className={styles.button} disabled={!ready || selected === 0} onMouseDown={keepFocus} onClick={() => editor?.saveSegment()}>Save selection as segment</button>
@@ -58,18 +57,17 @@ export function LayersPanel({ editor }: { editor: Editor | null }) {
   )
 }
 
-function SegmentRow({ s, editor, ready, onSelect, onSolo, onToggle }: {
-  s: Segment; editor: Editor | null; ready: boolean; onSelect: (e: MouseEvent) => void; onSolo: () => void; onToggle: (e: MouseEvent) => void
+// Swatch + name arrive as children, then count and eye; `extra` trails (the segment delete button).
+function LayerRow({ layer, visible, count, editor, ready, className = '', extra, children }: {
+  layer: Layer; visible: boolean; count: number; editor: Editor | null; ready: boolean; className?: string; extra?: ReactNode; children: ReactNode
 }) {
   return (
-    <div className={`${styles.row} ${styles.segRow}`} data-hidden={!s.visible} onMouseDown={keepFocus} onClick={onSelect} onDoubleClick={onSolo} title="click: select · ⇧ add · ⌥ subtract · double-click: solo">
-      <label className={styles.swatch} style={{ background: s.color }} onMouseDown={stop} onClick={stop} onDoubleClick={stop} title="Colour">
-        <input type="color" value={s.color} onChange={(e) => editor?.setSegmentColor(s.id, e.target.value)} />
-      </label>
-      <input className={styles.nameInput} value={s.name} onMouseDown={stop} onClick={stop} onDoubleClick={stop} onChange={(e) => editor?.renameSegment(s.id, e.target.value)} title="Rename" />
-      <span className={styles.count}>{s.count.toLocaleString()}</span>
-      <button className={styles.icon} title={s.visible ? 'Hide' : 'Show'} onMouseDown={keepFocus} onClick={onToggle} onDoubleClick={stop}>{s.visible ? '●' : '○'}</button>
-      <button className={styles.icon} title="Delete segment" disabled={!ready} onMouseDown={keepFocus} onClick={(e) => { stop(e); editor?.deleteSegment(s.id) }} onDoubleClick={stop}>×</button>
+    <div className={`${styles.row} ${className}`} data-hidden={!visible} onMouseDown={keepFocus} title={ROW_HINT}
+      onClick={(e) => { if (editor && ready) editor.selectLayer(layer, modeFromEvent(e)) }} onDoubleClick={() => editor?.soloLayer(layer)}>
+      {children}
+      <span className={styles.count}>{count.toLocaleString()}</span>
+      <button className={styles.icon} title={visible ? 'Hide' : 'Show'} onMouseDown={keepFocus} onClick={(e) => { stop(e); editor?.setLayerVisible(layer, !visible) }} onDoubleClick={stop}>{visible ? '●' : '○'}</button>
+      {extra}
     </div>
   )
 }

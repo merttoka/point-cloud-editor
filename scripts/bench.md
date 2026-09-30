@@ -34,7 +34,7 @@ Every number in README § Performance cites a row in `docs/bench/<date>-<machine
   vars.map((n) => { const at = lines.findIndex((l) => new RegExp(`^\\s*${n} = `).test(l)); const pre = lines.slice(0, at).join('\n')
     return { n, at, inBranch: pre.split('{').length - pre.split('}').length > 1 } })
   ```
-  Only the point-size var (assigned inside the hidden/deleted `select`) may report `inBranch: true`. Behavioural
+  No var may report `inBranch: true` (the size term is straight-line multiplies; the line's own `VERTEX_nodeVar…` shows `at: -1`). Behavioural
   cross-check in **height** colour mode: hide every class → empty canvas; `soloLayer({ class: 6 })` → buildings only.
 
 ## Row → README

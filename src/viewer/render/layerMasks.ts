@@ -12,8 +12,11 @@ export function getBit(words: Uint32Array, word: number, bit: number): boolean {
 export function setBit(words: Uint32Array, word: number, bit: number, on: boolean): void {
   words[word] = (on ? words[word] | (1 << bit) : words[word] & ~(1 << bit)) >>> 0
 }
+const segWord = (id: number) => 1 + (id >> 5)
 export const isClassVisible = (words: Uint32Array, cls: number) => getBit(words, 0, classBit(cls))
-export const isSegmentVisible = (words: Uint32Array, id: number) => getBit(words, 1 + (id >> 5), id & 31)
+export const isSegmentVisible = (words: Uint32Array, id: number) => getBit(words, segWord(id), id & 31)
+export const setClassVisible = (words: Uint32Array, cls: number, on: boolean) => setBit(words, 0, classBit(cls), on)
+export const setSegmentVisible = (words: Uint32Array, id: number, on: boolean) => setBit(words, segWord(id), id & 31, on)
 export const isVisible = (words: Uint32Array, cls: number, segId: number) => isClassVisible(words, cls) && isSegmentVisible(words, segId)
 export const allVisible = (words: Uint32Array) => words.every((w) => w === 0xffffffff)
 export function fillVisible(words: Uint32Array): void { words.fill(0xffffffff) }
@@ -21,7 +24,7 @@ export function fillVisible(words: Uint32Array): void { words.fill(0xffffffff) }
 export interface LayerMasks {
   attr: StorageBufferAttribute
   node: StorageBufferNode<'uint'>
-  words: Uint32Array          // = attr.array; mutate with setBit, then upload()
+  words: Uint32Array          // = attr.array; mutate with setClassVisible / setSegmentVisible, then upload()
   upload(): void              // whole buffer (36 B)
 }
 

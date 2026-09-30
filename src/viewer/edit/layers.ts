@@ -1,5 +1,5 @@
-import { FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, type Range } from './flags'
-import { isSubject, type Vis } from './ops'
+import { FLAG_SELECTED, FLAG_DELETED, type Range } from './flags'
+import { isSubject, SEL_BITS, type Vis } from './ops'
 import type { SegmentMeta } from '../loader/manifest'
 import type { Segment, SelectMode, SplitSide } from '../state/store'
 import { SEG_MAX } from '../render/layerMasks'
@@ -10,13 +10,12 @@ export { ALL, type Vis } from './ops'
 export type Layer = { class: number } | { segment: number }
 
 export const SEGMENT_PALETTE = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff']
-const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
 
 export const classOf = (q: Uint32Array, i: number) => q[i * 2 + 1] >>> 24
 
 export function classCounts(q: Uint32Array, n: number): Record<number, number> {
   const counts = new Uint32Array(256)
-  for (let i = 0; i < n; i++) counts[q[i * 2 + 1] >>> 24]++
+  for (let i = 0; i < n; i++) counts[classOf(q, i)]++
   const out: Record<number, number> = {}
   for (let c = 0; c < 256; c++) if (counts[c] > 0) out[c] = counts[c]
   return out

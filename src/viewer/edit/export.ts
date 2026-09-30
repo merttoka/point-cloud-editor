@@ -12,12 +12,13 @@ export function compactPoints(words: Uint32Array, flags: Uint8Array, n: number, 
   const out = new Uint32Array(count * WORDS_PER_POINT)
   const segOut = seg ? new Uint8Array(count) : null
   const qmin: V3 = [65535, 65535, 65535], qmax: V3 = [0, 0, 0]
-  let k = 0
+  let j = 0
   for (let i = 0; i < n; i++) {
     if (flags[i] & FLAG_DELETED) continue
-    if (segOut) segOut[k >> 1] = seg![i]
     const w0 = words[i * 2], w1 = words[i * 2 + 1]
-    out[k++] = w0; out[k++] = w1
+    out[j * WORDS_PER_POINT] = w0; out[j * WORDS_PER_POINT + 1] = w1
+    if (segOut) segOut[j] = seg![i]
+    j++
     const [x, y, z] = unpackWords(w0, w1)
     if (x < qmin[0]) qmin[0] = x; if (x > qmax[0]) qmax[0] = x
     if (y < qmin[1]) qmin[1] = y; if (y > qmax[1]) qmax[1] = y

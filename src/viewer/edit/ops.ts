@@ -1,7 +1,7 @@
 import { FLAG_HIDDEN, FLAG_SELECTED, FLAG_DELETED, FLAG_SPLIT_A, FLAG_SPLIT_B, type Range, unionRange } from './flags'
 import type { SelectMode, SplitSide } from '../state/store'
 
-const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
+export const SEL_BITS = FLAG_SELECTED | FLAG_SPLIT_A | FLAG_SPLIT_B
 
 export type Vis = (i: number) => boolean          // extra per-point visibility (layer masks); identity when nothing is masked
 export const ALL: Vis = () => true

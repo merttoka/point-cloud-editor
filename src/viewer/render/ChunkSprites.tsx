@@ -49,8 +49,9 @@ export function ChunkSprites({ buffers, manifest, handle, accent }: { buffers: P
     handle.setMode(colorMode)
     handle.setLut(lutKindFor(colorMode, colormap))
   }, [handle, colorMode, colormap])
-  const segments = useStore((s) => s.layers.segments)
-  useEffect(() => { segments.forEach((s) => handle.setSegmentColor(s.id, s.color)) }, [handle, segments])
+  // Keyed on id:colour only — a recount replaces the segments array too, and must not re-upload the LUT.
+  const segColors = useStore((s) => s.layers.segments.map((g) => `${g.id}:${g.color}`).join())
+  useEffect(() => { store.get().layers.segments.forEach((s) => handle.setSegmentColor(s.id, s.color)) }, [handle, store, segColors])
 
   useEffect(() => () => sprites.forEach((s) => s.geometry.dispose()), [sprites])
 
