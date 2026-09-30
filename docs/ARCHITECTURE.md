@@ -83,7 +83,6 @@ Known gaps carried across phases. Each entry names the owner phase (or "any") an
 - `api.orbit` (`render/Scene.tsx`) has no cancellation: an unmount mid-orbit leaves its step loop moving the camera until it finishes. Bench-only. Owner: any.
 
 **Layers (Phase 7)**
-- **The class mask does not gate the render** (§ Layers › Vertex stage, open finding): hiding a class leaves its points drawn, and hiding class 0 hides everything. Kernels and CPU ops are correct. Owner: phase 7 follow-up, before the Layers card ships.
 - The `.side` column's own scrollbar cannot be dragged (`pointer-events: none`); wheel and overlay scrollbars work. After a segment solo, only "Show all" restores the unsegmented points (no row for them). Owner: any (UI polish).
 - Toolbar Export under Playwright MCP closes the MCP connection (download), so a 20M export size needs a manual download. Owner: any.
 - Automatic instances (connected components over the hash) are parked. A `segId` per point and the segment list model are in place, so an instance pass only has to write ids and rows. Owner: any.
@@ -155,9 +154,9 @@ Spec: `docs/superpowers/specs/2026-09-26-phase-7-layers-design.md`. Plan and rul
 ### Vertex stage (`render/pointMaterial.ts`)
 `clsBit` and `segBit` are each 0 or 1 and multiply the size term: `sizeNode = select(collapsed, 0, sizePx) × float(clsBit × segBit)`. A masked point is meant to collapse exactly like a hidden one, with no branch near `positionView` (the phase 0 rule). The segment bit does this; the class bit does not gate on screen today (finding below). The Segments colour mode is mode 3 of the `t` select (`t = segId / 255`) over a 256×1 sRGB `DataTexture` LUT (`LutKind 'segments'`), the same `texture()` path as the class LUT, in place of the spec's packed-colour storage buffer (ruling 2): no extra storage read, and the sRGB decode comes from the texture format. Entry 0 is grey `#8a8a8a` and never changes; `setSegmentColor(id, hex)` writes one texel and sets `needsUpdate`.
 
-Observed finding (Task 4): the material's original class read, `packed.shiftRight(8)` chained onto `packed = w.y.shiftRight(16)`, rendered class colour mode as one flat grey and never gated the class mask bit on this machine (three 0.186.0, Chrome, WebGPU). A controlled fresh-reload test reproduced it. The single shift `w.y.shiftRight(24)` is arithmetically identical and fixed the colour mode. The cause was not root-caused; the comment on `cls` in `pointMaterial.ts` records it.
+Observed finding (Task 4): the material's original class read, `packed.shiftRight(8)` chained onto `packed = w.y.shiftRight(16)`, rendered class colour mode as one flat grey and never gated the class mask bit on this machine (three 0.186.0, Chrome, WebGPU). A controlled fresh-reload test reproduced it. The single shift `w.y.shiftRight(24)` is arithmetically identical and fixed the colour mode; the flat grey was the same codegen fault as the mask bug below, seen through the colour chain.
 
-**Open finding (Task 8, 2026-09-26): the class mask still does not gate the render.** With the single-shift read in place, at `792c86b` (2M and 20M) and at `d31ca28` (2M): hiding class 6 leaves every building drawn (`p7-t8-2m-hide-class6.png`, `p7-t8-2m-hide-class6-d31ca28.png`), and hiding class 0, which no point carries, empties the canvas (`p7-t8-2m-hide-class0.png`, `p7-t8-20m-hide-class0.png`). So the mask path reads bit 0 for every point, while class colour mode draws the right per-class colours from the same `cls` (`p7-t8-20m-classmode.png`). The segment bit works: a segment solo and a class-2 solo both drop the 20M frame (33.8 and 24 ms), a class-2 solo because it clears bit 0. The select kernels and the CPU ops apply the class mask correctly (Measured). Not root-caused and not fixed in this task; the first place to look is the `minU(cls, 31)` cast in the mask term (`min` typed for float only). Task 4's `f1-fixed-hide-class6.png` recorded class 6 hidden; that did not reproduce today.
+**Fixed 2026-09-30 (`e561242`) — the mask read the colour chain's branch-local vars.** The colour-mode `select()` (`mode == 1/2/3`) is the first use of `cls` and of the segment-id byte, so the builder assigned them inside those branches (WGSL dump: `nodeVar5` under `mode == 2`, `nodeVar7` under `mode == 3`) while the size term — straight-line code after the branch — read them for the mask bits. Outside the matching colour mode both read 0, so every point took class 0's / segment 0's bit: hiding a class did nothing, hiding class 0 or soloing any layer blanked the view, and class masks looked correct in class colour mode only (which is why Task 4 recorded them working and Task 8 did not). `minU(cls, 31)` was never at fault — it emits `min( …, 31u )` correctly. The mask now reads its own class byte (`qposNode.element(gi).y >> 24 & 0xff`) and its own segment id, both inlined into the size term; the colour chain keeps its branch-local vars. `fbyte` was unaffected because its first use is a straight-line varying. Verified at 2M in **height** colour mode: hide every class → empty canvas, hide class 6 → buildings gone, solo class 6 → buildings only (`.playwright-mcp/p7-fix-*.png`). Guard: `__pcv.shaderWgsl()` + the mask codegen check in `scripts/bench.md`.
 
 ### Kernels (`compute/wgsl/select.ts`, `bench/cpuReference.ts`)
 `pcvLayerOk(masks, segIds, w1, i)` joins the visibility guard of `pcvPickDepthBits` (pick) and `lassoSelect`: class bit `min((w1 >> 24) & 0xff, 31)` of `masks[0]` and bit `seg & 31` of `masks[1 + seg >> 5]`. Both buffers are bound once when the pipeline is built; a mask change is an upload, not a rebind. The CPU reference's `visible(i)` adds the same rule through `isVisible` (`render/layerMasks.ts`). Bench-only `api.selectionClasses()` counts the selection per class (ruling 8).
@@ -172,34 +171,18 @@ Export adds `segments.bin` (one byte per point, the compacted order of `points.b
 The Panel and the Layers card share a right-hand column (`.side`: absolute, `top/right/bottom: 8px`, `overflow-y: auto`) that scrolls on its own (ruling 9). The column is `pointer-events: none` and its cards `auto`, so the canvas under the empty part still picks. Rows, eye and footer buttons `preventDefault` on mousedown, so the viewer root keeps focus. The name and colour inputs take focus normally, and the root's `INPUT`/`SELECT` guard in `onKeyDown` stops `Delete` or letters typed there from firing ops (checked: `Delete` in the name input leaves `deleted` at 0). Row click selects (`⇧` add, `⌥` subtract), double-click solos, eye toggles; a segment solo leaves classes visible and hides unsegmented points. Two open edges from the final review: the column's own scrollbar cannot be dragged (the column is `pointer-events: none`; wheel and overlay scrollbars work), and after a segment solo only "Show all" brings the unsegmented points back, because they have no row. At 1277×804 the toolbar (x 8–943) and the column (x 1025–1269, scrolling 1,144 px of content in 788) no longer overlap (`p7-t8-1277x804-column.png`).
 
 ### Measured
-Rows: `docs/bench/2026-09-26-phase-7.json` (Task 8, commit `792c86b`, 2026-09-26). Chrome 153 via Playwright MCP, **vite dev server** on 5174, 1277×860, DPR 1, 2 px, 120 Hz, 1-min load 7.1, one tab. The Task 8 evaluate: settle → `frameAll` → hide every class but 6 → `frameBuildingOnly` → 30–70 % lasso vs `cpuLasso` → `saveSegment` → Segments mode → segment solo → show all → `selectLayer(class 2)` → undo → `deleteSegment`.
+Rows: `docs/bench/2026-09-26-phase-7.json` (re-measured 2026-09-30 after the mask fix; the superseded dev-server rows are kept as `void-*`). Chrome 153 via Playwright MCP, **`vite preview`** on 4173 — the server phase 6 used, so the 20M frame compares directly — 1277×860, DPR 1, 2 px, 240 Hz display this session, one tab, console 0 errors. The Task 8 evaluate: settle → `frameAll` → hide every class but 6 → `frameBuildingOnly` → 30–70 % lasso vs `cpuLasso` → `saveSegment` → Segments mode → segment solo → show all → `selectLayer(class 2)` → undo → `deleteSegment`.
 
-| quantity | 2M | 20M |
+| | 2M | 20M |
 |---|---|---|
-| load (warm cache) | 311 ms | 548 ms |
-| frame, all visible / building-only masks / Segments mode / segment solo | 8.36 / 8.35 / 8.33 / 8.33 ms (vsync floor) | 46.91 / 47.79 / 39.96 / 33.84 ms |
-| lasso 30–70 %, building-only: gpu / readback / wall | 0.262 / 6.8 / 26.9 ms | 1.97 / 193.2 / 584.4 ms |
-| lasso selected vs `cpuLasso`, `selectionClasses()` | 805,679 = 805,679, `{6}` | 8,058,742 vs 8,058,747, `{6}` |
-| `saveSegment` (claim + upload + recount; clears the selection through the undo ring) | 42.9 ms (805,679 pts) | 391.8 ms (8,058,742 pts) |
-| `selectLayer(class 2)` → selected | 28.1 ms → 469,916 = class 2 | 331.9 ms → 4,690,990 = class 2 |
-| undo depth after lasso + save + selectLayer | 3 | 3 |
-| `undo()` / `deleteSegment` | 9.5 / 7.1 ms | 122.4 / 79.5 ms |
-| computed memory (`memory()`), `segIds` | 40.1 MB, 2.0 MB | 413.6 MB, 20.0 MB |
+| load ms | 289 | 350 |
+| frame ms: all / building-only / Segments mode (building-only) / segment solo | 4.17 / 4.19 / 4.18 / 4.10 | 32.75 / 24.13 / 23.15 / 19.13 |
+| lasso 30–70 %, building-only: gpu / readback / selected vs `cpuLasso` | 0.13 / 3.7 ms / 805,679 = 805,679 | 1.11 / 101.4 ms / 8,058,742 vs 8,058,747 |
+| lasso 25–75 %, no masks | — | 19,143,782 = 19,143,782 |
+| `selectLayer` (class 2) / `saveSegment` / `deleteSegment` / `undo` ms | 25.9 / 22.9 / 6.3 / 9.4 | 174.5 / 212.3 / 47.5 / 80.2 |
+| `selectionClasses()` under building-only masks | `{"6": 805,679}` | `{"6": 8,058,742}` |
 
-20M frame against phase 6: the phase 6 row (33.19 ms) was a production build on `vite preview`. A same-session control on the phase 6 code (`main` at `82ddd59`, dev server, same viewport) read **43.79–44.45 ms**, and a second load of the phase 7 build read **43.25–45.17 ms** all-visible, so the layers code costs no measurable frame time; today's absolute 20M frame is ~44 ms on the dev server. The first-run 46.9 ms sits 1.5–2 ms above both and did not repeat. Building-only masks do not lower the 20M frame (44.05–44.35 ms on the reload, against 31.8–33.8 ms when the same 10,486,201 non-building points are flag-hidden) because the class mask does not gate the render (open finding above). The segment solo (8.06M visible) and a class-2 solo do drop it.
-
-Lasso parity (GPU `selected` vs `cpuLasso`):
-
-| polygon, masks | 2M | 20M |
-|---|---|---|
-| 30–70 %, building-only | 805,679 = 805,679 | 8,058,742 vs 8,058,747 (Δ 5) |
-| 25–75 %, building-only | 924,924 = 924,924 | 9,252,700 = 9,252,700 |
-| 30–70 %, all visible | 1,676,881 = 1,676,881 | 16,772,354 vs 16,772,359 (Δ 5) |
-| 25–75 %, all visible | — | 19,143,782 = 19,143,782 (= phase 6's row) |
-
-The 20M 30–70 % gap is the same 5 points with and without masks and vanishes at 25–75 %, so it is f32 (GPU) vs f64 (CPU) polygon-edge ties, not the masks. Phase 6's exact 20M match was at 25–75 %, and the 16,772,354 is phase 5's 20M replace-lasso count.
-
-Not measured: the 20M export zip. Clicking the toolbar Export under Playwright MCP closed the MCP connection twice (20M and 2M), and no zip landed. By construction a no-delete 20M export is `points.bin` 160,000,000 B + `segments.bin` 20,000,000 B + the manifest (both stored); the 2M round trip (Task 6, below) is the verified one.
+20M frame against phase 6 (33.19 ms, same server): **32.75 ms all-visible**, so the layers code costs no measurable frame time. Masking is free to draw and cheaper to fill — building-only takes 20M to **24.13 ms** and a segment solo (8.06M visible) to 19.13 ms, with `draws` fixed at 257: masked points collapse to zero-size quads, they are not culled. All four 2M states sit on the 4.17 ms vsync floor. The 30–70 % lasso differs from `cpuLasso` by 5 points (3×10⁻⁷) with masks on **and** off, and by none at 25–75 %: f32-vs-f64 ties on the polygon edge, inherited from phase 5's projection, not the masks.
 
 2M, earlier tasks (dev server, 1277×860):
 - Task 5, building-only masks, 30–70 % lasso: 805,679 selected = `cpuLasso`, `selectionClasses()` keys `["6"]`. All layers visible: 1,676,881 = `cpuLasso` across 6 classes.

@@ -55,7 +55,6 @@ Export writes `export.zip` = `manifest.json` + `points.bin` in the same v1 layou
 ### Layers
 Every class the tile carries is a row; a segment is a named group of points you save from the current selection (one `segId` byte per point, exclusive, ≤ 255 segments). Class and segment visibility are two independent masks read by the vertex stage and the select kernels, so hiding ground and vegetation and lassoing a roof selects the building alone. Segment save / rename / recolour / delete are outside the undo ring; selecting a layer goes through it like a lasso. Export writes `segments.bin` + a `segments` table into the manifest (optional fields; a plain export is unchanged) and re-open restores the rows; visibility is not persisted. The Segments colour mode paints each segment with its colour and everything else grey. Saving clears the selection (one undo step) so the new colour shows at once; click the row to select it again.
 
-Known issue (phase 7): the class mask gates pick, lasso and the ops, but not the drawing yet. A hidden class stays on screen; segment visibility and solo work. See ARCHITECTURE › Layers.
 
 ![Layers card, Segments colour mode](docs/media/layers.png)
 
@@ -155,21 +154,25 @@ Phase 7 adds the `segIds` buffer (1 B/point: 2.0 MB at 2M, 20.0 MB at 20M; `memo
 
 ### Layers (phase 7)
 
-Measured 2026-09-26 on the vite dev server (not `vite preview`), otherwise the same setup; rows in [`docs/bench/2026-09-26-phase-7.json`](docs/bench/2026-09-26-phase-7.json). A same-session run of the phase 6 code read 43.8–44.5 ms at 20M, so compare the 20M frames with that, not with the 33.19 ms above. Screenshot: [`docs/media/layers.png`](docs/media/layers.png).
+Measured 2026-09-30 under `vite preview` (same server phase 6 used, so the 20M frames compare directly with the 33.19 ms above); rows in [`docs/bench/2026-09-26-phase-7.json`](docs/bench/2026-09-26-phase-7.json). Screenshot: [`docs/media/layers.png`](docs/media/layers.png).
 
 | | 2M | 20M |
 |---|---|---|
-| frame ms: all visible / building-only / Segments mode / segment solo | 8.36 / 8.35 / 8.33 / 8.33 | 46.91 / 47.79 / 39.96 / 33.84 (reload: 43.3–45.2 all visible) |
+| load ms | 289 | 350 |
+| frame ms: all visible / building-only / Segments mode (building-only) / segment solo | 4.17 / 4.19 / 4.18 / 4.10 | 32.75 / 24.13 / 23.15 / 19.13 |
 | lasso 30–70 %, building-only: selected vs `cpuLasso` | 805,679 = 805,679 | 8,058,742 vs 8,058,747 |
-| lasso 25–75 %, building-only | 924,924 = 924,924 | 9,252,700 = 9,252,700 |
-| `selectLayer` (class 2) ms | 28.1 | 331.9 |
-| `saveSegment` ms | 42.9 | 391.8 |
-| `deleteSegment` ms | 7.1 | 79.5 |
+| lasso 25–75 %, no masks | — | 19,143,782 = 19,143,782 |
+| `selectLayer` (class 2) ms | 25.9 | 174.5 |
+| `saveSegment` ms | 22.9 | 212.3 |
+| `deleteSegment` ms | 6.3 | 47.5 |
+| undo ms | 9.4 | 80.2 |
+| lasso kernel / flags readback ms | 0.13 / 3.7 | 1.11 / 101.4 |
 | computed memory after a build (`segIds`) | 40.1 MB (2.0 MB) | 413.6 MB (20.0 MB) |
 
-- The 20M 30–70 % gap is 5 points with or without masks and none at 25–75 %: f32 vs f64 ties on the polygon edge, not the masks.
-- Building-only does not lower the 20M frame because of the known issue above. Flag-hiding the same 10.5M points gives 31.8–33.8 ms.
-- The 20M export zip was not measured: the toolbar download closes the Playwright MCP connection. The 2M segments export round trip is verified (ARCHITECTURE › Layers).
+- Masking is free to draw and cheaper to fill: hiding every class but building takes 20M from 32.75 to 24.13 ms, and `draws` stays 257 — masked points collapse to zero-size quads, they are not culled.
+- All four 2M frame states sit on the vsync floor (4.17 ms, 240 Hz display this session), so the 2M row shows no differences.
+- The 20M 30–70 % gap is 5 points (3×10⁻⁷) with or without masks and none at 25–75 %: f32 vs f64 ties on the polygon edge, inherited from phase 5's projection, not the masks.
+- The 20M export zip is still unmeasured: the toolbar download closes the Playwright MCP connection. The 2M segments export round trip is verified (ARCHITECTURE › Layers).
 
 ## Architecture
 
