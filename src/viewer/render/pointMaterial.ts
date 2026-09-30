@@ -49,9 +49,6 @@ export function createPointMaterial(
   const z = w.y.bitAnd(uint(0xffff))
   const packed = w.y.shiftRight(uint(16))
   const intensity = packed.bitAnd(uint(0xff))
-  // `cls` was `packed.shiftRight(uint(8)).bitAnd(uint(0xff))`: correct through phases 2-6 (cls's only consumer),
-  // then read 0 for every point once cls gained a second consumer (`minU(cls, 31)` in the mask bit below) on
-  // three 0.186.0 / Chrome WebGPU. The single shift from `w.y` is arithmetically identical and works; not root-caused.
   const cls = w.y.shiftRight(uint(24)).bitAnd(uint(0xff))
 
   // Byte `gi` of a u8-packed word buffer (flags, ao): word gi >> 2, shift (gi & 3) * 8.
@@ -70,8 +67,16 @@ export function createPointMaterial(
   const minU = min as unknown as (a: Node<'uint'>, b: Node<'uint'>) => Node<'uint'>
   const sbyte = byteOf(buffers.segIdsNode)
   const mw = buffers.masks.node
-  const clsBit = mw.element(uint(0)).shiftRight(minU(cls, uint(31))).bitAnd(uint(1))
-  const segBit = mw.element(sbyte.shiftRight(uint(5)).add(uint(1))).shiftRight(sbyte.bitAnd(uint(31))).bitAnd(uint(1))
+  // The mask reads its own class byte / segment id instead of reusing `cls` / `sbyte`: those two are first used inside
+  // the colour-mode `select` branches, so the builder materialises them there (WGSL dump: `nodeVar5` assigned only
+  // under `mode == 2`, `nodeVar7` only under `mode == 3`) while the size term below is straight-line code after the
+  // branch — outside the matching colour mode it read 0, so every point took class 0's / segment 0's bit (hiding a
+  // class did nothing; a solo cleared bit 0 and blanked the view). Same family as the Phase 0 `select` finding:
+  // a node whose first use sits inside a branch must not be shared with anything outside it.
+  const clsOwn = buffers.qposNode.element(gi).y.shiftRight(uint(24)).bitAnd(uint(0xff))
+  const segOwn = byteOf(buffers.segIdsNode)
+  const clsBit = mw.element(uint(0)).shiftRight(minU(clsOwn, uint(31))).bitAnd(uint(1))
+  const segBit = mw.element(segOwn.shiftRight(uint(5)).add(uint(1))).shiftRight(segOwn.bitAnd(uint(31))).bitAnd(uint(1))
   const layerVisible = float(clsBit.mul(segBit))
 
   // Oct-decoded normal and AO byte (compute outputs), vertex-stage reads like qpos/flags.
