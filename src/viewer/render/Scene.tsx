@@ -36,6 +36,7 @@ export interface ViewerApi {
   classStats?: () => Promise<ClassStats>                                 // per-class normals/AO stats over the last build
   selectionClasses?: () => Record<number, number>                       // selected count per class (CPU pass over the mirror)
   renderGpuMs?: () => Promise<number | null>                             // next frame's render-pass GPU ms
+  shaderWgsl?: () => Promise<string | null>                              // point material's generated vertex WGSL
   frame?: () => FrameRow                                                 // Hud's EMA
   orbit?: (steps?: number, ms?: number) => Promise<void>                // scripted full turn around the target
   uploadLog?: () => number[]                                            // per-chunk GPU upload ms

@@ -35,6 +35,7 @@ export interface BenchHandle {
   settle(ms: number): Promise<void>
   frame(): FrameRow
   renderGpuMs(): Promise<number | null>
+  shaderWgsl(): Promise<string | null>                // generated vertex WGSL (mask/clip-space codegen checks)
   orbit(steps?: number, ms?: number): Promise<void>
   setBudget(frac: number): void
   edl(on: boolean): void
@@ -87,6 +88,7 @@ export function createBenchHandle(store: Store<ViewerState>, api: ViewerApi, edi
     uploadMs: () => api.uploadLog?.() ?? [],
     waitFor, settle, frame,
     renderGpuMs: () => api.renderGpuMs?.() ?? Promise.resolve(null),
+    shaderWgsl: () => api.shaderWgsl?.() ?? Promise.resolve(null),
     orbit: (steps, ms) => api.orbit?.(steps, ms) ?? Promise.resolve(),
     setBudget(frac) { store.set({ budget: Math.min(1, Math.max(0, frac)) }) },
     edl(on) { store.set({ edl: { ...store.get().edl, enabled: on } }) },
