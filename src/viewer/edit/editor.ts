@@ -149,8 +149,11 @@ export function createEditor(buffers: PointBuffers, manifest: Manifest, store: S
       const s: Segment = { id, name: name ?? `Segment ${id}`, color: SEGMENT_PALETTE[(id - 1) % SEGMENT_PALETTE.length], count: r.count, visible: true }
       patchLayers(store, { segments: [...segs, s] })
       patch({ message: undefined })
-      clearSel()                                         // new colour shows at once; run() inside refreshes
-      if (!selRange) refresh()                            // clearSel is a no-op with nothing selected — recount anyway
+      // Dropping the selection lets the new segment colour show at once. clearSel() refreshes through run(), but it
+      // is a no-op when the claim consumed every selected point, so recount here in that case only.
+      const hadSelection = selRange !== null
+      clearSel()
+      if (!hadSelection) refresh()
       return s
     },
     deleteSegment(id) {
