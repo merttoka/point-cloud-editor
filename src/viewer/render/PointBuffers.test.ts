@@ -36,4 +36,21 @@ describe('createPointBuffers', () => {
     expect(b.flags.updateRanges).toEqual([{ start: 1, count: 2 }])
     expect(b.flags.version).toBe(1)
   })
+  it('allocates ceil(N/4) segId words, zeroed, with a byte view and a word-aligned upload range', () => {
+    const b = createPointBuffers(10, 1)
+    expect(b.segIds.array.length).toBe(3)
+    expect(b.segBytes.length).toBe(12)
+    expect(Array.from(b.segBytes).every((v) => v === 0)).toBe(true)
+    b.segBytes[9] = 7
+    expect((b.segIds.array as Uint32Array)[2]).toBe(7 << 8)
+    b.uploadSegRange(9, 9)
+    expect(b.segIds.updateRanges).toEqual([{ start: 2, count: 1 }])
+    expect(b.segIds.version).toBe(1)
+    expect(b.segIdsNode).toBeDefined()
+  })
+  it('carries a fresh all-visible layer mask', () => {
+    const b = createPointBuffers(10, 1)
+    expect(b.masks.words.length).toBe(9)
+    expect(Array.from(b.masks.words).every((w) => w === 0xffffffff)).toBe(true)
+  })
 })

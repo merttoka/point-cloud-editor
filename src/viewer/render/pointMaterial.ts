@@ -1,12 +1,12 @@
 import * as THREE from 'three/webgpu'
 import type { Node } from 'three/webgpu'
-import { abs, clamp, dot, float, instanceIndex, max, mix, normalize, positionView, select, step, texture, transformNormalToView, uniform, uint, userData, vec2, vec3, vertexStage } from 'three/tsl'
+import { abs, clamp, dot, float, instanceIndex, max, min, mix, normalize, positionView, select, step, texture, transformNormalToView, uniform, uint, userData, vec2, vec3, vertexStage } from 'three/tsl'
 import type { PointBuffers } from './PointBuffers'
 import { FLAG_HIDDEN, FLAG_DELETED, FLAG_SELECTED, FLAG_SPLIT_A, FLAG_SPLIT_B } from './PointBuffers'
 import { centroidOf, type Manifest } from '../loader/manifest'
 import { dequantScale, QMAX } from '../format/quant'
-import { makeLutTexture, type LutKind } from './colormaps'
-import type { ColorMode, Shading, ViewerState } from '../state/store'
+import { hexToRgb, makeLutTexture, type LutKind } from './colormaps'
+import type { ColorMode, Colormap, Shading, ViewerState } from '../state/store'
 
 export interface PointMaterialHandle {
   material: THREE.PointsNodeMaterial
@@ -16,11 +16,14 @@ export interface PointMaterialHandle {
   setRefDist(d: number): void
   setShading(mode: Shading): void
   setHighlight(selected: string): void   // CSS colour for the selection tint (split colours are fixed)
+  setSegmentColor(id: number, color: string): void   // '#rrggbb' → segments LUT entry; entry 0 stays SEGMENT_NONE
   dispose(): void
 }
 
-const MODE: Record<ColorMode, number> = { height: 0, intensity: 1, class: 2 }
+const MODE: Record<ColorMode, number> = { height: 0, intensity: 1, class: 2, segments: 3 }
 const SHADING: Record<Shading, number> = { flat: 0, lit: 1, litAo: 2, normals: 3 }
+
+export const lutKindFor = (mode: ColorMode, colormap: Colormap): LutKind => mode === 'class' || mode === 'segments' ? mode : colormap
 
 // `init` seeds the uniforms/LUT from the store snapshot so the material never carries its own copy of the defaults.
 export function createPointMaterial(
@@ -46,7 +49,7 @@ export function createPointMaterial(
   const z = w.y.bitAnd(uint(0xffff))
   const packed = w.y.shiftRight(uint(16))
   const intensity = packed.bitAnd(uint(0xff))
-  const cls = packed.shiftRight(uint(8)).bitAnd(uint(0xff))
+  const cls = w.y.shiftRight(uint(24)).bitAnd(uint(0xff))
 
   // Byte `gi` of a u8-packed word buffer (flags, ao): word gi >> 2, shift (gi & 3) * 8.
   const byteOf = (words: PointBuffers['flagsNode']) => words.element(gi.shiftRight(uint(2))).shiftRight(gi.bitAnd(uint(3)).mul(uint(8))).bitAnd(uint(0xff))
@@ -56,6 +59,25 @@ export function createPointMaterial(
   const tint = vertexStage(vec3(bitF(FLAG_SELECTED), bitF(FLAG_SPLIT_A), bitF(FLAG_SPLIT_B)))
   // uniform(Color) is linear; new Color('#hex') decodes sRGB under the default ColorManagement, matching the LUT path.
   const cSel = uniform(new THREE.Color('#bf1656')), cA = uniform(new THREE.Color('#2ec4b6')), cB = uniform(new THREE.Color('#ff9f1c'))
+
+  // Layer masks (render/layerMasks.ts): word 0 class bit, words 1..8 segment bit. Both 0/1 → one multiply on the size term,
+  // so a masked point collapses exactly like a hidden one (A8) and no branch touches positionView.
+  // min()'s declared type only covers float/vecN (three's MathNode.d.ts: "TODO Allow int/uint"); the runtime node is
+  // dynamically typed regardless, so cast like the userData() read above.
+  const minU = min as unknown as (a: Node<'uint'>, b: Node<'uint'>) => Node<'uint'>
+  const sbyte = byteOf(buffers.segIdsNode)
+  const mw = buffers.masks.node
+  // The mask reads its own class byte / segment id instead of reusing `cls` / `sbyte`: those two are first used inside
+  // the colour-mode `select` branches, so the builder materialises them there (WGSL dump: `nodeVar5` assigned only
+  // under `mode == 2`, `nodeVar7` only under `mode == 3`) while the size term below is straight-line code after the
+  // branch — outside the matching colour mode it read 0, so every point took class 0's / segment 0's bit (hiding a
+  // class did nothing; a solo cleared bit 0 and blanked the view). Same family as the Phase 0 `select` finding:
+  // a node whose first use sits inside a branch must not be shared with anything outside it.
+  const clsOwn = buffers.qposNode.element(gi).y.shiftRight(uint(24)).bitAnd(uint(0xff))
+  const segOwn = byteOf(buffers.segIdsNode)
+  const clsBit = mw.element(uint(0)).shiftRight(minU(clsOwn, uint(31))).bitAnd(uint(1))
+  const segBit = mw.element(segOwn.shiftRight(uint(5)).add(uint(1))).shiftRight(segOwn.bitAnd(uint(31))).bitAnd(uint(1))
+  const layerVisible = float(clsBit.mul(segBit))
 
   // Oct-decoded normal and AO byte (compute outputs), vertex-stage reads like qpos/flags.
   const nw = buffers.normalsNode.element(gi)
@@ -86,20 +108,21 @@ export function createPointMaterial(
   material.positionNode = vec3(float(x), float(y), float(z)).mul(dqScale).add(dqMinCentred)
   // Hidden/deleted → size 0 collapses the quad (select sits outside the clamp, so the 1 px floor can't revive it).
   const sizePx = clamp(pointSize.mul(refDist).div(positionView.z.negate()), 1, 8)
-  material.sizeNode = select(collapsed, float(0), sizePx)
+  material.sizeNode = select(collapsed, float(0), sizePx).mul(layerVisible)
 
   // Colour: t chosen per mode; wrapped in vertexStage so the storage reads stay in the vertex stage.
   const tH = float(z).div(QMAX)
   const tI = float(intensity).div(255)
   const tC = float(cls).div(255)
-  const t = select(mode.equal(1), tI, select(mode.equal(2), tC, tH))
+  const tS = float(sbyte).div(255)
+  const t = select(mode.equal(1), tI, select(mode.equal(2), tC, select(mode.equal(3), tS, tH)))
   const luts = new Map<LutKind, THREE.DataTexture>()
   const lutFor = (kind: LutKind) => {
     let tex = luts.get(kind)
     if (!tex) { tex = makeLutTexture(kind); luts.set(kind, tex) }
     return tex
   }
-  const lutNode = texture(lutFor(init.colorMode === 'class' ? 'class' : init.colormap), vec2(vertexStage(t), 0.5))
+  const lutNode = texture(lutFor(lutKindFor(init.colorMode, init.colormap)), vec2(vertexStage(t), 0.5))
   const base = mix(lutNode.mul(vertexStage(light)), vertexStage(abs(normalObj)), debugNormals)
   material.colorNode = mix(mix(mix(base, cSel, tint.x.mul(0.7)), cA, tint.y), cB, tint.z)
 
@@ -111,6 +134,11 @@ export function createPointMaterial(
     setRefDist: (d) => { refDist.value = d },
     setShading: (m) => { shading.value = SHADING[m] },
     setHighlight: (selected) => { cSel.value.set(selected) },
+    setSegmentColor: (id, color) => {
+      const tex = lutFor('segments')
+      ;(tex.image.data as Uint8Array).set([...hexToRgb(color), 255], id * 4)
+      tex.needsUpdate = true
+    },
     dispose: () => { luts.forEach((t) => t.dispose()); material.dispose() },
   }
 }

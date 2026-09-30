@@ -33,6 +33,26 @@ describe('validateManifest', () => {
   it('rejects non-object', () => {
     expect(() => validateManifest(null)).toThrow()
   })
+  it('leaves segments/segmentsFile absent when the manifest has none', () => {
+    const m = validateManifest(good)
+    expect('segments' in m).toBe(false); expect('segmentsFile' in m).toBe(false)
+  })
+  it('accepts the optional segments table and file, lower-casing colours', () => {
+    const m = validateManifest({ ...good, segments: [{ id: 1, name: 'roof', color: '#FF0000' }, { id: 255, name: 'x', color: '#00ff00' }], segmentsFile: 'segments.bin' })
+    expect(m.segments).toEqual([{ id: 1, name: 'roof', color: '#ff0000' }, { id: 255, name: 'x', color: '#00ff00' }])
+    expect(m.segmentsFile).toBe('segments.bin')
+  })
+  it('rejects a segment id outside 1..255, a bad colour, a duplicate id, a non-string segmentsFile', () => {
+    const seg = (s: object) => ({ ...good, segments: [s] })
+    expect(() => validateManifest(seg({ id: 0, name: 'a', color: '#000000' }))).toThrow(/segment/)
+    expect(() => validateManifest(seg({ id: 256, name: 'a', color: '#000000' }))).toThrow(/segment/)
+    expect(() => validateManifest(seg({ id: 1.5, name: 'a', color: '#000000' }))).toThrow(/segment/)
+    expect(() => validateManifest(seg({ id: 1, name: 'a', color: 'red' }))).toThrow(/segment/)
+    expect(() => validateManifest(seg({ id: 1, color: '#000000' }))).toThrow(/segment/)
+    expect(() => validateManifest({ ...good, segments: [{ id: 1, name: 'a', color: '#000000' }, { id: 1, name: 'b', color: '#000000' }] })).toThrow(/duplicate/)
+    expect(() => validateManifest({ ...good, segments: {} })).toThrow(/segments/)
+    expect(() => validateManifest({ ...good, segmentsFile: 3 })).toThrow(/segmentsFile/)
+  })
 })
 
 describe('resolveBinUrl', () => {
@@ -54,5 +74,12 @@ describe('fetchManifest', () => {
   it('throws on HTTP error', async () => {
     const fetchFn = (async () => new Response('nope', { status: 404 })) as unknown as typeof fetch
     await expect(fetchManifest('https://x.test/d/manifest.json', fetchFn)).rejects.toThrow(/404/)
+  })
+  it('resolves segmentsUrl next to the manifest, null without segmentsFile', async () => {
+    const fake = (body: object) => (async () => new Response(JSON.stringify(body))) as unknown as typeof fetch
+    const a = await fetchManifest('https://x.test/data/e/manifest.json', fake({ ...good, segments: [{ id: 1, name: 'a', color: '#000000' }], segmentsFile: 'segments.bin' }))
+    expect(a.segmentsUrl).toBe('https://x.test/data/e/segments.bin')
+    const b = await fetchManifest('https://x.test/data/e/manifest.json', fake(good))
+    expect(b.segmentsUrl).toBeNull()
   })
 })

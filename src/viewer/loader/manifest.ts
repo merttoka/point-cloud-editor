@@ -6,6 +6,8 @@ export function centroidOf(b: Bounds): [number, number, number] {
 
 export interface ManifestChunk { offset: number; count: number; bounds: Bounds }
 
+export interface SegmentMeta { id: number; name: string; color: string }   // one exported/imported segment row (#rrggbb)
+
 export interface Manifest {
   version: 1
   name: string
@@ -19,6 +21,8 @@ export interface Manifest {
   file: string
   classMap: Record<string, string>
   chunks: ManifestChunk[]
+  segments?: SegmentMeta[]     // phase 7 export: user segments (ids 1..255), optional
+  segmentsFile?: string        // one byte per point, same order as `file`; optional
 }
 
 function isVec3(v: unknown): v is [number, number, number] {
@@ -44,6 +48,19 @@ export function validateManifest(json: unknown): Manifest {
     next += c.count
   }
   if (next !== m.pointCount) throw new Error(`manifest: chunks sum ${next} != pointCount ${m.pointCount}`)
+  const HEX = /^#[0-9a-f]{6}$/i
+  let segments: SegmentMeta[] | undefined
+  if (m.segments !== undefined) {
+    if (!Array.isArray(m.segments)) throw new Error('manifest: segments must be an array')
+    const seen = new Set<number>()
+    segments = (m.segments as SegmentMeta[]).map((s) => {
+      if (typeof s !== 'object' || s === null || !Number.isInteger(s.id) || s.id < 1 || s.id > 255 || typeof s.name !== 'string' || typeof s.color !== 'string' || !HEX.test(s.color)) throw new Error('manifest: segment invalid')
+      if (seen.has(s.id)) throw new Error(`manifest: duplicate segment id ${s.id}`)
+      seen.add(s.id)
+      return { id: s.id, name: s.name, color: s.color.toLowerCase() }
+    })
+  }
+  if (m.segmentsFile !== undefined && typeof m.segmentsFile !== 'string') throw new Error('manifest: segmentsFile must be a string')
   return {
     version: 1,
     name: typeof m.name === 'string' ? m.name : 'dataset',
@@ -57,6 +74,8 @@ export function validateManifest(json: unknown): Manifest {
     file: m.file,
     classMap: (typeof m.classMap === 'object' && m.classMap !== null ? m.classMap : {}) as Record<string, string>,
     chunks: m.chunks as ManifestChunk[],
+    ...(segments && { segments }),
+    ...(typeof m.segmentsFile === 'string' && { segmentsFile: m.segmentsFile }),
   }
 }
 
@@ -64,11 +83,11 @@ export function resolveBinUrl(manifestUrl: string, file: string): string {
   return new URL(file, manifestUrl).href
 }
 
-export async function fetchManifest(url: string, fetchFn: typeof fetch = fetch): Promise<{ manifest: Manifest; binUrl: string }> {
+export async function fetchManifest(url: string, fetchFn: typeof fetch = fetch): Promise<{ manifest: Manifest; binUrl: string; segmentsUrl: string | null }> {
   const res = await fetchFn(url)
   if (!res.ok) throw new Error(`manifest: HTTP ${res.status} for ${url}`)
   const manifest = validateManifest(await res.json())
   // Relative props like "/data/demo/manifest.json" resolve against the page; absolute URLs pass through.
   const absolute = new URL(url, globalThis.location?.href ?? 'http://localhost/').href
-  return { manifest, binUrl: resolveBinUrl(absolute, manifest.file) }
+  return { manifest, binUrl: resolveBinUrl(absolute, manifest.file), segmentsUrl: manifest.segmentsFile ? resolveBinUrl(absolute, manifest.segmentsFile) : null }
 }

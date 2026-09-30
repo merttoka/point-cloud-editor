@@ -25,6 +25,12 @@ fn pcvInPoly(px: vec2<f32>, poly: ptr<storage, array<vec2<f32>>, read_write>, co
   }
   return inside;
 }
+// Layer visibility: class bit min(cls, 31) of masks[0], segment bit of masks[1 + seg/32]. Same rule as render/layerMasks.ts isVisible.
+fn pcvLayerOk(masks: ptr<storage, array<u32>, read_write>, segIds: ptr<storage, array<u32>, read_write>, w1: u32, i: u32) -> bool {
+  let cls = min((w1 >> 24u) & 0xffu, 31u);
+  let seg = (segIds[i >> 2u] >> ((i & 3u) * 8u)) & 0xffu;
+  return ((masks[0] >> cls) & 1u) == 1u && ((masks[1u + (seg >> 5u)] >> (seg & 31u)) & 1u) == 1u;
+}
 `)
 
 export const resetPick = wgslFn(/* wgsl */ `
@@ -39,13 +45,16 @@ export const resetPick = wgslFn(/* wgsl */ `
 // size the material renders. Evaluated identically in both passes, so pass 2's equality compare is bit-exact.
 const pickPrologue = wgsl(/* wgsl */ `
 fn pcvPickDepthBits(qpos: ptr<storage, array<vec2<u32>>, read_write>, flags: ptr<storage, array<u32>, read_write>,
+                    segIds: ptr<storage, array<u32>, read_write>, masks: ptr<storage, array<u32>, read_write>,
                     chunkTable: ptr<storage, array<vec2<u32>>, read_write>, i: u32, count: u32, chunks: u32,
                     dqScale: vec3<f32>, dqMin: vec3<f32>, viewProj: mat4x4<f32>, view: mat4x4<f32>,
                     viewport: vec2<f32>, cursor: vec2<f32>, pointSize: f32, refDist: f32) -> u32 {
   if (i >= count || i >= pcvVisibleEnd(chunkTable, chunks, i)) { return 0xffffffffu; }
   let f = (flags[i >> 2u] >> ((i & 3u) * 8u)) & 0xffu;
   if ((f & 5u) != 0u) { return 0xffffffffu; }                       // hidden | deleted
-  let p = pcvDecodePos(qpos[i], dqScale) + dqMin;
+  let w = qpos[i];
+  if (!pcvLayerOk(masks, segIds, w.y, i)) { return 0xffffffffu; }
+  let p = pcvDecodePos(w, dqScale) + dqMin;
   let s = pcvProject(p, viewProj, viewport);
   if (s.w <= 0.0 || s.z < 0.0 || s.z > 1.0) { return 0xffffffffu; }
   let viewZ = (view * vec4<f32>(p, 1.0)).z;
@@ -56,10 +65,11 @@ fn pcvPickDepthBits(qpos: ptr<storage, array<vec2<u32>>, read_write>, flags: ptr
 }
 `)
 const pickParams = `qpos: ptr<storage, array<vec2<u32>>, read_write>, flags: ptr<storage, array<u32>, read_write>,
+               segIds: ptr<storage, array<u32>, read_write>, masks: ptr<storage, array<u32>, read_write>,
                chunkTable: ptr<storage, array<vec2<u32>>, read_write>, pick: ptr<storage, array<atomic<u32>>, read_write>,
                i: u32, count: u32, chunks: u32, dqScale: vec3<f32>, dqMin: vec3<f32>, viewProj: mat4x4<f32>, view: mat4x4<f32>,
                viewport: vec2<f32>, cursor: vec2<f32>, pointSize: f32, refDist: f32`
-const pickArgs = `qpos, flags, chunkTable, i, count, chunks, dqScale, dqMin, viewProj, view, viewport, cursor, pointSize, refDist`
+const pickArgs = `qpos, flags, segIds, masks, chunkTable, i, count, chunks, dqScale, dqMin, viewProj, view, viewport, cursor, pointSize, refDist`
 
 // Pass 1: atomicMin of the depth bits.
 export const pickDepth = wgslFn(/* wgsl */ `
@@ -85,6 +95,7 @@ export const pickIndex = wgslFn(/* wgsl */ `
 // set inside), 1 add (OR inside), 2 subtract (AND-NOT inside). bbox = (minX, minY, maxX, maxY) screen px.
 export const lassoSelect = wgslFn(/* wgsl */ `
   fn lassoSelect(qpos: ptr<storage, array<vec2<u32>>, read_write>, flags: ptr<storage, array<u32>, read_write>,
+                 segIds: ptr<storage, array<u32>, read_write>, masks: ptr<storage, array<u32>, read_write>,
                  chunkTable: ptr<storage, array<vec2<u32>>, read_write>, poly: ptr<storage, array<vec2<f32>>, read_write>,
                  w: u32, count: u32, chunks: u32, vertexCount: u32, mode: u32, bbox: vec4<f32>,
                  dqScale: vec3<f32>, dqMin: vec3<f32>, viewProj: mat4x4<f32>, viewport: vec2<f32>) -> u32 {
@@ -97,7 +108,7 @@ export const lassoSelect = wgslFn(/* wgsl */ `
       let f = (word >> shift) & 0xffu;
       var g = f;
       if (mode == 0u) { g = g & ~26u; }                      // replace: drop selected + split tags everywhere
-      if ((f & 5u) == 0u && i < pcvVisibleEnd(chunkTable, chunks, i)) {
+      if ((f & 5u) == 0u && i < pcvVisibleEnd(chunkTable, chunks, i) && pcvLayerOk(masks, segIds, qpos[i].y, i)) {
         let p = pcvDecodePos(qpos[i], dqScale) + dqMin;
         let s = pcvProject(p, viewProj, viewport);
         if (s.w > 0.0 && s.z >= 0.0 && s.z <= 1.0 && s.x >= bbox.x && s.x <= bbox.z && s.y >= bbox.y && s.y <= bbox.w

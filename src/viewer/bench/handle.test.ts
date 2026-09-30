@@ -6,20 +6,22 @@ import type { ViewerApi } from '../render/Scene'
 const manifest = { name: 't', pointCount: 20_000_000, bounds: { min: [0, 0, 0], max: [1000, 1000, 100] }, chunks: [{ offset: 0, count: 20_000_000, bounds: { min: [0, 0, 0], max: [1000, 1000, 100] } }] } as unknown as ViewerState['manifest']
 
 describe('memoryBytes', () => {
-  it('matches ARCHITECTURE § Memory at 20M after a build (≈394 MB)', () => {
+  it('matches ARCHITECTURE § Memory at 20M after a build (≈414 MB)', () => {
     const m = memoryBytes(20_000_000)
     expect(m.qpos).toBe(160_000_000)
     expect(m.flags).toBe(20_000_000)
+    expect(m.segIds).toBe(20_000_000)
     expect(m.normals).toBe(80_000_000)
     expect(m.ao).toBe(20_000_000)
     expect(m.hash).toBe((4_194_304 + 1) * 4 + 4_194_304 * 4 + (4_194_304 / 256) * 4 + 20_000_000 * 4)
-    expect(m.total).toBeGreaterThan(393e6)
-    expect(m.total).toBeLessThan(395e6)
+    expect(m.total).toBeGreaterThan(413e6)
+    expect(m.total).toBeLessThan(415e6)
   })
   it('flags and ao round up to whole words', () => {
     const m = memoryBytes(5)
     expect(m.flags).toBe(8)
     expect(m.ao).toBe(8)
+    expect(m.segIds).toBe(8)
   })
 })
 

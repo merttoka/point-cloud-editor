@@ -28,8 +28,17 @@ export function PostPass({ api }: { api: ViewerApi }) {
       const ms = await r.resolveTimestampsAsync(THREE.TimestampQuery.RENDER)
       return ms ?? null
     }
-    return () => { api.renderGpuMs = undefined }
-  }, [gl, api])
+    // Bench: the point material's generated WGSL. A node whose first use sits inside a `select` branch is
+    // materialised there, so anything outside the branch reads 0 (Phase 0 clip space, Phase 7 layer masks) —
+    // dumping the shader is the only way to see it. `scripts/bench.md` has the check.
+    api.shaderWgsl = async () => {
+      const sprite = scene.children.find((o) => (o as THREE.Sprite).isSprite) as THREE.Sprite | undefined
+      if (!sprite) return null
+      const { vertexShader } = await r.debug.getShaderAsync(scene, camera, sprite)
+      return vertexShader
+    }
+    return () => { api.renderGpuMs = undefined; api.shaderWgsl = undefined }
+  }, [gl, scene, camera, api])
 
   const edl = useStore((s) => s.edl)
   useEffect(() => {

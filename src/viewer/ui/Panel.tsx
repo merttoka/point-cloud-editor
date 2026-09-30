@@ -56,8 +56,9 @@ export function Panel({ api }: { api: ViewerApi }) {
       <label className={styles.row}><span>Colour</span>
         <select value={colorMode} onChange={(e) => store.set({ colorMode: e.target.value as ColorMode })}>
           <option value="height">Height</option><option value="intensity">Intensity</option><option value="class">Classification</option>
+          <option value="segments">Segments</option>
         </select></label>
-      {colorMode !== 'class' && (
+      {colorMode !== 'class' && colorMode !== 'segments' && (
         <label className={styles.row}><span>Colormap</span>
           <select value={colormap} onChange={(e) => store.set({ colormap: e.target.value as Colormap })}>
             <option value="viridis">Viridis</option><option value="turbo">Turbo</option><option value="grayscale">Grayscale</option>

@@ -3,6 +3,7 @@ import { StoreContext, createStore, initialState, patchEdit, useStore, useViewer
 import { useLoader } from './loader/useLoader'
 import { Scene, type ViewerApi } from './render/Scene'
 import { Panel } from './ui/Panel'
+import { LayersPanel } from './ui/LayersPanel'
 import { KeysOverlay, LoadingOverlay } from './ui/Overlays'
 import { Toolbar } from './ui/Toolbar'
 import { LassoOverlay } from './ui/LassoOverlay'
@@ -109,7 +110,10 @@ function ViewerInner({ manifestUrl, theme, className, dpr, onApi }: PointCloudVi
     <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} ref={rootEl} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
       <div data-pcv-hud ref={hudEl} className={styles.hud} />
       {loaded && <LassoOverlay api={api} />}
-      <Panel api={api} />
+      <div className={styles.side}>
+        <Panel api={api} />
+        <LayersPanel editor={loaded?.editor ?? null} />
+      </div>
       <Toolbar editor={loaded?.editor ?? null} api={api} />
       {showKeys && <KeysOverlay />}
       {message === null && status !== 'ready' && !error && <LoadingOverlay />}

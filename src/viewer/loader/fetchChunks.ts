@@ -1,6 +1,6 @@
 import type { ChunkQueue, ChunkRef } from './chunkQueue'
 import { BYTES_PER_POINT } from '../format/quant'
-import type { Manifest } from './manifest'
+import type { Manifest, SegmentMeta } from './manifest'
 
 export type LoaderIn =
   | { type: 'start'; binUrl: string; chunks: ChunkRef[]; pos?: [number, number, number] }
@@ -8,7 +8,7 @@ export type LoaderIn =
   | { type: 'dispose' }
   | { type: 'cpuBench'; words: Uint32Array; n: number; dqScale: [number, number, number]; radius: number; tableSize: number }
   | { type: 'cancelBench' }
-  | { type: 'export'; words: Uint32Array; flags: Uint8Array; manifest: Manifest }
+  | { type: 'export'; words: Uint32Array; flags: Uint8Array; seg: Uint8Array; segments: SegmentMeta[]; manifest: Manifest }
 export type LoaderOut =
   | { type: 'chunk'; index: number; words: Uint32Array }
   | { type: 'done' }

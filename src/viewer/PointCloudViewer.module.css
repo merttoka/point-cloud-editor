@@ -1,3 +1,6 @@
 .root { position: relative; width: 100%; height: 100%; min-height: 240px; outline: none; background: var(--pcv-bg); color: var(--pcv-text); font: 12px/1.4 var(--pcv-mono); }
 .hud { position: absolute; top: 8px; left: 8px; z-index: 1; white-space: pre; pointer-events: none; }
 .message { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }
+/* Right-hand column for the cards; the column itself is transparent to the pointer so the canvas under its empty part still picks. */
+.side { position: absolute; top: 8px; right: 8px; bottom: 8px; z-index: 2; width: 244px; display: grid; gap: 8px; align-content: start; overflow-y: auto; pointer-events: none; }
+.side > * { pointer-events: auto; }

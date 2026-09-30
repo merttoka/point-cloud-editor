@@ -36,7 +36,7 @@ export function createSelectPipeline(renderer: THREE.WebGPURenderer, buffers: Po
     pointSize: uniform(2), refDist: uniform(1000), vertexCount: uniform(0, 'uint'), mode: uniform(0, 'uint'), bbox: uniform(new THREE.Vector4()),
   }
   const common = {
-    qpos: buffers.qposNode, flags: buffers.flagsNode, chunkTable, count: uint(N), chunks: uint(chunks),
+    qpos: buffers.qposNode, flags: buffers.flagsNode, segIds: buffers.segIdsNode, masks: buffers.masks.node, chunkTable, count: uint(N), chunks: uint(chunks),
     dqScale: vec3(...dequantScale(b)), dqMin: vec3(b.min[0] - c[0], b.min[1] - c[1], b.min[2] - c[2]),
     viewProj: u.viewProj, viewport: u.viewport,
   }

@@ -5,7 +5,9 @@ import type { ChunkRef } from './chunkQueue'
 import { createPointBuffers, type PointBuffers } from '../render/PointBuffers'
 import { createPointMaterial, type PointMaterialHandle } from '../render/pointMaterial'
 import { createEditor, type Editor } from '../edit/editor'
-import { patchEdit, useViewerStore } from '../state/store'
+import { applySegmentBytes, classCounts } from '../edit/layers'
+import { initialState, patchEdit, useViewerStore } from '../state/store'
+import type { Segment } from '../state/store'
 import { homePose, type ViewerApi } from '../render/Scene'
 import { BENCH_CAP, benchWords, tableSizeFor } from '../compute/params'
 import { dequantScale, WORDS_PER_POINT } from '../format/quant'
@@ -16,6 +18,7 @@ type BenchResult = { normals: Uint32Array; ao: Uint8Array; n: number } | null
 export interface Loaded {
   manifest: Manifest
   binUrl: string
+  segmentsUrl: string | null
   buffers: PointBuffers
   handle: PointMaterialHandle
   editor: Editor
@@ -29,15 +32,15 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
 
   useEffect(() => {
     let cancelled = false
-    store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 }, loadMs: null })
+    store.set({ status: 'loading', error: undefined, manifest: null, loaded: { points: 0, chunks: 0 }, loadMs: null, layers: initialState.layers })
     loadT0.current = performance.now()
-    fetchManifest(manifestUrl).then(({ manifest, binUrl }) => {
+    fetchManifest(manifestUrl).then(({ manifest, binUrl, segmentsUrl }) => {
       if (cancelled) return
       const buffers = createPointBuffers(manifest.pointCount, manifest.chunks.length)
       const handle = createPointMaterial(buffers, manifest, store.get())
       const editor = createEditor(buffers, manifest, store)
       store.set({ manifest })
-      setLoaded({ manifest, binUrl, buffers, handle, editor })
+      setLoaded({ manifest, binUrl, segmentsUrl, buffers, handle, editor })
     }).catch((err: unknown) => {
       if (!cancelled) store.set({ status: 'error', error: String(err) })
     })
@@ -46,7 +49,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
 
   useEffect(() => {
     if (!loaded) return
-    const { manifest, binUrl, buffers } = loaded
+    const { manifest, binUrl, buffers, segmentsUrl } = loaded
     const t0 = loadT0.current   // this dataset's; a later manifestUrl swap must not re-base a still-streaming worker's loadMs
     const centroid = centroidOf(manifest.bounds)
     const worker = new Worker(new URL('./loader.worker.ts', import.meta.url), { type: 'module' })
@@ -55,8 +58,41 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       return { index, offset: c.offset, count: c.count, centre: [cc[0] - centroid[0], cc[1] - centroid[1], cc[2] - centroid[2]] }
     })
     let points = 0, n = 0
+    let disposed = false
     let benchResolve: ((r: BenchResult) => void) | null = null
     let benchN = 0
+    // Class counts once (one pass over the words, ~30 ms at 20M) and the exported segment table, both before `ready` so the
+    // Layers card never shows zeros. A missing/short segments.bin only costs the segments (warned), never the dataset.
+    const finish = async () => {
+      try {
+        const counts = classCounts(buffers.qpos.array as Uint32Array, manifest.pointCount)
+        const classVisible: Record<number, boolean> = {}
+        for (const c of Object.keys(counts)) classVisible[Number(c)] = true
+        let segments: Segment[] = []
+        const table = manifest.segments
+        if (table && table.length > 0 && segmentsUrl) {
+          try {
+            const res = await fetch(segmentsUrl)
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            const bytes = new Uint8Array(await res.arrayBuffer())
+            if (bytes.length !== manifest.pointCount) throw new Error(`${bytes.length} bytes for ${manifest.pointCount} points`)
+            const r = applySegmentBytes(buffers.segBytes, bytes, table)
+            if (r.unknown > 0) console.warn(`segments: dropped ${r.unknown} points whose id is not in the manifest table`)
+            if (!disposed) buffers.uploadSegRange(0, manifest.pointCount - 1)
+            segments = r.segments
+          } catch (err) { console.warn(`segments: ${String(err)} (${segmentsUrl}); opening without segments`) }
+        } else if ((table && table.length > 0) || segmentsUrl) {
+          console.warn(`segments: ${table && table.length > 0 ? 'manifest.segments present but no segmentsUrl' : 'segmentsUrl present but no manifest.segments'}; opening without segments`)
+        }
+        if (disposed) return
+        store.set({ layers: { classCounts: counts, classVisible, segments }, status: 'ready', loadMs: performance.now() - t0 })
+        api.sendCamera = undefined
+      } catch (err) {
+        // Mirrors the worker's own 'error' branch below — a throw outside the segments block (e.g. classCounts) must not
+        // silently strand the dataset in 'loading'.
+        if (!disposed) store.set({ status: 'error', error: String(err) })
+      }
+    }
     worker.onmessage = (e: MessageEvent<LoaderOut>) => {
       const msg = e.data
       if (msg.type === 'benchProgress') {
@@ -81,8 +117,7 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
         n += 1
         store.set({ loaded: { points, chunks: n } })
       } else if (msg.type === 'done') {
-        store.set({ status: 'ready', loadMs: performance.now() - t0 })
-        api.sendCamera = undefined
+        void finish()
       } else if (n > 0) {
         // Scene already has geometry on screen — don't tear it down, just surface the error.
         store.set({ error: msg.message })
@@ -110,15 +145,18 @@ export function useLoader(manifestUrl: string, api: ViewerApi): Loaded | null {
       if (store.get().edit.busy) return
       patchEdit(store, { busy: true, message: undefined })
       try {
-        // Copies: the attribute's own array and the flags mirror must stay behind; the worker takes ownership of the slices.
-        const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), manifest }
-        worker.postMessage(m, [m.words.buffer, m.flags.buffer])
+        // Copies: the attribute's own array, the flags mirror and the seg mirror must stay behind; the worker takes ownership of the slices.
+        const segments = store.get().layers.segments.map(({ id, name, color }) => ({ id, name, color }))
+        const seg = segments.length > 0 ? buffers.segBytes.slice() : new Uint8Array(0)   // no segments: skip the 20 MB copy, worker ignores it anyway
+        const m: LoaderIn = { type: 'export', words: (buffers.qpos.array as Uint32Array).slice(), flags: buffers.flagBytes.slice(), seg, segments, manifest }
+        worker.postMessage(m, [m.words.buffer, m.flags.buffer, ...(seg.byteLength > 0 ? [m.seg.buffer] : [])])
       } catch (err) {
         // A synchronous postMessage failure would otherwise leave the toolbar locked behind `busy`.
         patchEdit(store, { busy: false, message: `export failed: ${String(err)}` })
       }
     }
     return () => {
+      disposed = true
       const m: LoaderIn = { type: 'dispose' }
       worker.postMessage(m)
       worker.onmessage = null

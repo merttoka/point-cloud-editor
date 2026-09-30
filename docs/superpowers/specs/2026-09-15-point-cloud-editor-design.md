@@ -1,7 +1,7 @@
 # Point Cloud Editor — Design Spec
 
 Date: 2026-09-15
-Status: complete (2026-09-25)
+Status: complete (2026-09-26)
 
 ## Goal
 
@@ -123,6 +123,7 @@ Same algorithms in TS (typed arrays) in the loader worker. **Benchmark only, not
 4. **compute** — hash, normals, AO, timing panel, CPU benchmark + verify. **Done.**
 5. **editing** — click/lasso select, ops, split, undo, export zip. **Done.**
 6. **perf-docs** — HUD numbers, README table, screenshots/webm, ARCHITECTURE, portfolio blurb. **Done.**
+7. **layers** — class/segment rows, visibility masks in the vertex stage + kernels, segments save/export/import, Segments colour mode. **Done.**
 
 ## Amendments (phase 1–6 brainstorm, 2026-09-15)
 

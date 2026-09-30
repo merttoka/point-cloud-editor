@@ -1,4 +1,4 @@
-import type { Store, ViewerState, Shading, SelectMode, VerifyResult } from '../state/store'
+import type { Store, ViewerState, Shading, SelectMode, VerifyResult, ColorMode } from '../state/store'
 import type { ClassStats, FrameRow, ViewerApi } from '../render/Scene'
 import type { Editor } from '../edit/editor'
 import type { Poly } from '../edit/lasso'
@@ -11,7 +11,7 @@ import { download } from '../ui/download'
 // at import time (record() touches the DOM only when called), so vitest can cover the arithmetic.
 
 export interface ComputeRow { countMs: number | null; scanMs: number | null; scatterMs: number | null; normalsMs: number | null; aoMs: number | null; totalMs: number | null; wallMs: number | null; radius: number }
-export interface MemoryRow { qpos: number; flags: number; normals: number; ao: number; hash: number; total: number }
+export interface MemoryRow { qpos: number; flags: number; segIds: number; normals: number; ao: number; hash: number; total: number }
 export interface BenchRow {
   dataset: string; points: number; chunks: number; budget: number; pointSize: number
   env: { ua: string; dpr: number; width: number; height: number; date: string }
@@ -35,10 +35,13 @@ export interface BenchHandle {
   settle(ms: number): Promise<void>
   frame(): FrameRow
   renderGpuMs(): Promise<number | null>
+  shaderWgsl(): Promise<string | null>                // generated vertex WGSL (mask/clip-space codegen checks)
   orbit(steps?: number, ms?: number): Promise<void>
   setBudget(frac: number): void
   edl(on: boolean): void
   shading(mode: Shading): void
+  colorMode(mode: ColorMode): void
+  selectionClasses(): Record<number, number> | null   // selected points per class (bench CPU pass)
   compute(radiusMul?: number): Promise<ComputeRow | null>
   cpuBench(): Promise<{ hashMs: number; normalsMs: number; aoMs: number; n: number } | null>
   verify(): Promise<VerifyResult | null>
@@ -58,8 +61,8 @@ export function memoryBytes(pointCount: number): MemoryRow {
   const words = Math.ceil(pointCount / 4) * 4
   const T = tableSizeFor(pointCount)
   const hash = (T + 1) * 4 + T * 4 + (T / SCAN_BLOCK) * 4 + pointCount * 4   // cellStart, cellCursor, blockSums, sorted
-  const qpos = pointCount * WORDS_PER_POINT * 4, flags = words, normals = pointCount * 4, ao = words
-  return { qpos, flags, normals, ao, hash, total: qpos + flags + normals + ao + hash }
+  const qpos = pointCount * WORDS_PER_POINT * 4, flags = words, segIds = words, normals = pointCount * 4, ao = words
+  return { qpos, flags, segIds, normals, ao, hash, total: qpos + flags + segIds + normals + ao + hash }
 }
 
 const sum = (xs: (number | null)[]) => xs.every((x): x is number => x !== null) ? xs.reduce((a, b) => a + b, 0) : null
@@ -85,10 +88,13 @@ export function createBenchHandle(store: Store<ViewerState>, api: ViewerApi, edi
     uploadMs: () => api.uploadLog?.() ?? [],
     waitFor, settle, frame,
     renderGpuMs: () => api.renderGpuMs?.() ?? Promise.resolve(null),
+    shaderWgsl: () => api.shaderWgsl?.() ?? Promise.resolve(null),
     orbit: (steps, ms) => api.orbit?.(steps, ms) ?? Promise.resolve(),
     setBudget(frac) { store.set({ budget: Math.min(1, Math.max(0, frac)) }) },
     edl(on) { store.set({ edl: { ...store.get().edl, enabled: on } }) },
     shading(mode) { store.set({ shading: mode }) },
+    colorMode(mode) { store.set({ colorMode: mode }) },
+    selectionClasses: () => api.selectionClasses?.() ?? null,
     async compute(radiusMul = store.get().compute.radiusMul) {
       if (!ready() || !api.build) return null
       const radius = radiusFor(radiusMul)

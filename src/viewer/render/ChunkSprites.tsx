@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import * as THREE from 'three/webgpu'
 import { centroidOf, type Manifest } from '../loader/manifest'
 import type { PointBuffers } from './PointBuffers'
-import type { PointMaterialHandle } from './pointMaterial'
+import { lutKindFor, type PointMaterialHandle } from './pointMaterial'
 import { useStore, useViewerStore } from '../state/store'
 
 export function ChunkSprites({ buffers, manifest, handle, accent }: { buffers: PointBuffers; manifest: Manifest; handle: PointMaterialHandle; accent: string }) {
@@ -47,8 +47,10 @@ export function ChunkSprites({ buffers, manifest, handle, accent }: { buffers: P
   useEffect(() => { if (accent) handle.setHighlight(accent) }, [handle, accent])
   useEffect(() => {
     handle.setMode(colorMode)
-    handle.setLut(colorMode === 'class' ? 'class' : colormap)
+    handle.setLut(lutKindFor(colorMode, colormap))
   }, [handle, colorMode, colormap])
+  const segments = useStore((s) => s.layers.segments)
+  useEffect(() => { segments.forEach((s) => handle.setSegmentColor(s.id, s.color)) }, [handle, segments])
 
   useEffect(() => () => sprites.forEach((s) => s.geometry.dispose()), [sprites])
 

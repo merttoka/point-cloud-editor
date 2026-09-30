@@ -1,0 +1,387 @@
+{
+  "env": {
+    "date": "2026-09-30",
+    "commit": "c06a0bb",
+    "machine": "M4 Max",
+    "browser": "Chrome 153 via Playwright MCP (headed)",
+    "server": "vite preview, http://localhost:4173/point-cloud/app/ (matches the phase 6 rows)",
+    "viewport": "1277x860",
+    "dpr": 1,
+    "pointSizePx": 2,
+    "display": "240 Hz (4.17 ms vsync floor) this session",
+    "load1min": 7.12,
+    "notes": "Re-measured after the layer-mask codegen fix (material read class 0's / segment 0's bit outside the matching colour mode, so masks never collapsed points). Earlier rows in this file were taken with that bug and with the dev server; they are kept below as 'void-*' for provenance. Both rows from the Task 8 Step 1 evaluate; saveSegment clears the selection through the undo ring, so undoDepth = lasso + save + selectLayer = 3."
+  },
+  "rows": {
+    "2M": {
+      "loadMs": 289.4,
+      "classCounts": {
+        "1": 260748,
+        "2": 469916,
+        "3": 3958,
+        "5": 303220,
+        "6": 951068,
+        "7": 11090
+      },
+      "frameAll": {
+        "ms": 4.169,
+        "fps": 239.9,
+        "draws": 257,
+        "width": 1277,
+        "height": 860,
+        "dpr": 1
+      },
+      "frameBuildingOnly": {
+        "ms": 4.191,
+        "fps": 238.6,
+        "draws": 257
+      },
+      "lasso": {
+        "gpuMs": 0.131,
+        "readbackMs": 3.7,
+        "selected": 805679
+      },
+      "lassoWallMs": 17.2,
+      "cpuSelected": 805679,
+      "classes": {
+        "6": 805679
+      },
+      "saveMs": 22.9,
+      "frameSegments": {
+        "ms": 4.176,
+        "draws": 257
+      },
+      "frameSolo": {
+        "ms": 4.096,
+        "draws": 257
+      },
+      "selectLayerMs": 25.9,
+      "selectedGround": 469916,
+      "undoDepth": 3,
+      "undoMs": 9.4,
+      "deleteSegMs": 6.3,
+      "frameEnd": {
+        "ms": 4.18,
+        "draws": 257
+      }
+    },
+    "20M": {
+      "loadMs": 349.9,
+      "classCounts": {
+        "1": 2612297,
+        "2": 4690990,
+        "3": 39768,
+        "5": 3031959,
+        "6": 9513799,
+        "7": 111187
+      },
+      "frameAll": {
+        "ms": 32.746,
+        "fps": 30.54,
+        "draws": 257,
+        "width": 1277,
+        "height": 860,
+        "dpr": 1
+      },
+      "frameBuildingOnly": {
+        "ms": 24.132,
+        "fps": 41.44,
+        "draws": 257
+      },
+      "lasso": {
+        "gpuMs": 1.114,
+        "readbackMs": 101.4,
+        "selected": 8058742
+      },
+      "lassoWallMs": 305.7,
+      "cpuSelected": 8058747,
+      "classes": {
+        "6": 8058742
+      },
+      "saveMs": 212.3,
+      "frameSegments": {
+        "ms": 23.148,
+        "draws": 257
+      },
+      "frameSolo": {
+        "ms": 19.126,
+        "draws": 257
+      },
+      "selectLayerMs": 174.5,
+      "selectedGround": 4690990,
+      "undoDepth": 3,
+      "undoMs": 80.2,
+      "deleteSegMs": 47.5,
+      "frameEnd": {
+        "ms": 33.283,
+        "draws": 257
+      }
+    },
+    "20M-lasso-parity": {
+      "p25_75": {
+        "gpu": 19143782,
+        "cpu": 19143782,
+        "delta": 0
+      },
+      "p30_70": {
+        "gpu": 16772354,
+        "cpu": 16772359,
+        "delta": -5
+      },
+      "masks": "none (showAllLayers) \u2014 the same -5 appears with building-only masks, so it is f32/f64 edge ties, not the masks"
+    },
+    "void-2M": {
+      "loadMs": 311.2,
+      "classCounts": {
+        "1": 260748,
+        "2": 469916,
+        "3": 3958,
+        "5": 303220,
+        "6": 951068,
+        "7": 11090
+      },
+      "frameAll": {
+        "ms": 8.3604,
+        "fps": 119.61,
+        "draws": 257,
+        "width": 1277,
+        "height": 860,
+        "dpr": 1
+      },
+      "frameBuildingOnly": {
+        "ms": 8.345,
+        "fps": 119.83,
+        "draws": 257
+      },
+      "lasso": {
+        "gpuMs": 0.262144,
+        "readbackMs": 6.8,
+        "selected": 805679
+      },
+      "lassoWallMs": 26.9,
+      "cpuSelected": 805679,
+      "classes": {
+        "6": 805679
+      },
+      "segment": {
+        "id": 1,
+        "name": "roofs",
+        "color": "#e6194b",
+        "count": 805679,
+        "visible": true
+      },
+      "saveMs": 42.9,
+      "frameSegments": {
+        "ms": 8.3328,
+        "fps": 120.01,
+        "draws": 257
+      },
+      "frameSolo": {
+        "ms": 8.332,
+        "fps": 120.02,
+        "draws": 257
+      },
+      "selectLayerMs": 28.1,
+      "selectedGround": 469916,
+      "undoDepth": 3,
+      "undoMs": 9.5,
+      "deleteSegMs": 7.1,
+      "frameEnd": {
+        "ms": 8.3261,
+        "fps": 120.1,
+        "draws": 257
+      },
+      "memory": {
+        "qpos": 16000000,
+        "flags": 2000000,
+        "segIds": 2000000,
+        "normals": 8000000,
+        "ao": 2000000,
+        "hash": 10101252,
+        "total": 40101252
+      },
+      "lassoParity": {
+        "buildingOnly30to70": {
+          "gpu": 805679,
+          "cpu": 805679
+        },
+        "buildingOnly25to75": {
+          "gpu": 924924,
+          "cpu": 924924
+        },
+        "allVisible30to70": {
+          "gpu": 1676881,
+          "cpu": 1676881
+        }
+      }
+    },
+    "void-20M": {
+      "loadMs": 548,
+      "classCounts": {
+        "1": 2612297,
+        "2": 4690990,
+        "3": 39768,
+        "5": 3031959,
+        "6": 9513799,
+        "7": 111187
+      },
+      "frameAll": {
+        "ms": 46.9057,
+        "fps": 21.32,
+        "draws": 257,
+        "width": 1277,
+        "height": 860,
+        "dpr": 1
+      },
+      "frameBuildingOnly": {
+        "ms": 47.7874,
+        "fps": 20.93,
+        "draws": 257
+      },
+      "lasso": {
+        "gpuMs": 1.96608,
+        "readbackMs": 193.2,
+        "selected": 8058742
+      },
+      "lassoWallMs": 584.4,
+      "cpuSelected": 8058747,
+      "classes": {
+        "6": 8058742
+      },
+      "segment": {
+        "id": 1,
+        "name": "roofs",
+        "color": "#e6194b",
+        "count": 8058742,
+        "visible": true
+      },
+      "saveMs": 391.8,
+      "frameSegments": {
+        "ms": 39.9559,
+        "fps": 25.03,
+        "draws": 257
+      },
+      "frameSolo": {
+        "ms": 33.8352,
+        "fps": 29.55,
+        "draws": 257
+      },
+      "selectLayerMs": 331.9,
+      "selectedGround": 4690990,
+      "undoDepth": 3,
+      "undoMs": 122.4,
+      "deleteSegMs": 79.5,
+      "frameEnd": {
+        "ms": 43.2385,
+        "fps": 23.13,
+        "draws": 257
+      },
+      "memory": {
+        "qpos": 160000000,
+        "flags": 20000000,
+        "segIds": 20000000,
+        "normals": 80000000,
+        "ao": 20000000,
+        "hash": 113619972,
+        "total": 413619972
+      },
+      "framesSettledAllVisible": [
+        46.49,
+        46.0,
+        45.75,
+        45.88,
+        45.82
+      ],
+      "lassoParity": {
+        "buildingOnly30to70": {
+          "gpu": 8058742,
+          "cpu": 8058747
+        },
+        "buildingOnly25to75": {
+          "gpu": 9252700,
+          "cpu": 9252700
+        },
+        "allVisible30to70": {
+          "gpu": 16772354,
+          "cpu": 16772359
+        },
+        "allVisible25to75": {
+          "gpu": 19143782,
+          "cpu": 19143782
+        }
+      }
+    },
+    "void-20M-reload": {
+      "note": "Second load of the phase 7 build right after the main control; 2 s settles.",
+      "loadMs": 803.5,
+      "framesAllVisible": [
+        45.17,
+        43.25,
+        44.03,
+        43.98,
+        44.99
+      ],
+      "framesBuildingOnlyMask": [
+        44.05,
+        44.35,
+        44.23
+      ],
+      "framesSameNonBuildingPointsFlagHidden": {
+        "hidden": 10486201,
+        "ms": [
+          31.8,
+          33.76,
+          32.58
+        ]
+      },
+      "framesGroundOnlySolo": [
+        24.31,
+        24.18,
+        23.85
+      ],
+      "framesAllVisibleAfter": [
+        41.83,
+        44.06,
+        43.14
+      ]
+    },
+    "void-20M-control-main-82ddd59": {
+      "loadMs": 421.6,
+      "framesAllVisible": [
+        43.79,
+        44.2,
+        44.32,
+        44.09,
+        44.45
+      ]
+    }
+  },
+  "classMaskRenderCheck": {
+    "finding": "FIXED (commit e561242). The colour-mode select() materialised `cls` and the segment-id byte inside its branches (nodeVar5 under mode==2, nodeVar7 under mode==3) while the size term read them outside, so every point took class 0's / segment 0's bit: hiding a class did nothing, hiding class 0 or soloing blanked the view, and class masks looked correct in class colour mode only. The mask now reads its own class byte and segment id.",
+    "observedOn": "height colour mode at 2M: hide every class -> empty canvas; hide class 6 -> buildings gone; solo class 6 -> buildings only",
+    "guard": "__pcv.shaderWgsl() + the mask codegen check in scripts/bench.md",
+    "screenshots": [
+      ".playwright-mcp/p7-fix-hide-all-classes.png",
+      ".playwright-mcp/p7-fix-hide-buildings.png",
+      ".playwright-mcp/p7-fix-solo-buildings.png"
+    ]
+  },
+  "export20M": "not measured: clicking the toolbar Export under Playwright MCP closed the MCP connection (2M and 20M, twice); no zip was saved",
+  "layout1277x804": {
+    "toolbar": [
+      8,
+      752,
+      943,
+      796
+    ],
+    "sideColumn": [
+      1025,
+      8,
+      1269,
+      796
+    ],
+    "sideScrollHeight": 1144,
+    "sideClientHeight": 788,
+    "screenshot": ".playwright-mcp/p7-t8-1277x804-column.png"
+  }
+}
