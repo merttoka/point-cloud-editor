@@ -4,3 +4,7 @@
 /* Right-hand column for the cards; the column itself is transparent to the pointer so the canvas under its empty part still picks. */
 .side { position: absolute; top: 8px; right: 8px; bottom: 8px; z-index: 2; width: 244px; display: grid; gap: 8px; align-content: start; overflow-y: auto; pointer-events: none; }
 .side > * { pointer-events: auto; }
+.side[hidden] { display: none; }
+/* Compact (phone-sized) viewer: cards behind the toggle, open over the canvas down to the toolbar's row. */
+.cardsToggle { position: absolute; top: 8px; right: 8px; z-index: 3; padding: 4px 10px; background: var(--pcv-card); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); cursor: pointer; }
+.root[data-compact=true] .side { top: 44px; bottom: 60px; width: min(244px, calc(100% - 16px)); }

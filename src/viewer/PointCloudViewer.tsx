@@ -15,6 +15,9 @@ import tokens from './theme/tokens.module.css'
 
 export type { BenchHandle } from './bench/handle'
 
+/** px: a viewer narrower or shorter than this is laid out for a phone. */
+const COMPACT = { width: 640, height: 480 }
+
 export interface PointCloudViewerProps {
   manifestUrl: string
   theme?: 'dark' | 'light'
@@ -105,12 +108,25 @@ function ViewerInner({ manifestUrl, theme, className, dpr, onApi }: PointCloudVi
   const [accent, setAccent] = useState('')
   useEffect(() => { if (rootEl.current) setAccent(getComputedStyle(rootEl.current).getPropertyValue('--pcv-accent').trim()) }, [theme])
 
+  // A phone-sized viewer (either side under COMPACT px) folds the cards behind a toggle and keeps the toolbar to one
+  // scrolling row, so the canvas isn't buried under them. Measured on the root, not the window: a host may embed it small.
+  const [compact, setCompact] = useState(false)
+  const [cardsOpen, setCardsOpen] = useState(false)
+  useEffect(() => {
+    const el = rootEl.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setCompact(e.contentRect.width < COMPACT.width || e.contentRect.height < COMPACT.height))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const message = !hasGpu ? 'WebGPU not available in this browser.' : status === 'error' ? error : null
   return (
-    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} ref={rootEl} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+    <div className={`${tokens.root} ${styles.root} ${className ?? ''}`} data-theme={theme} data-compact={compact} ref={rootEl} tabIndex={0} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur} onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
       <div data-pcv-hud ref={hudEl} className={styles.hud} />
       {loaded && <LassoOverlay api={api} />}
-      <div className={styles.side}>
+      {compact && <button className={styles.cardsToggle} aria-expanded={cardsOpen} onMouseDown={(e) => e.preventDefault()} onClick={() => setCardsOpen((o) => !o)}>{cardsOpen ? 'Close' : 'Settings'}</button>}
+      <div className={styles.side} hidden={compact && !cardsOpen}>
         <Panel api={api} />
         <LayersPanel editor={loaded?.editor ?? null} />
       </div>
