@@ -39,7 +39,7 @@ export function Toolbar({ editor, api }: { editor: Editor | null; api: ViewerApi
       <span className={styles.muted}>sel {edit.counts.selected.toLocaleString()} · hidden {edit.counts.hidden.toLocaleString()} · deleted {edit.counts.deleted.toLocaleString()}</span>
       {edit.lasso && <span className={styles.muted}>lasso {edit.lasso.gpuMs?.toFixed(2) ?? 'n/a'} ms gpu · {edit.lasso.readbackMs.toFixed(0)} ms readback</span>}
       {edit.pickMs !== null && <span className={styles.muted}>pick {edit.pickMs.toFixed(1)} ms</span>}
-      {edit.message && <span className={styles.muted}>{edit.message}</span>}
+      {edit.message && <span className={`${styles.muted} ${styles.message}`}>{edit.message}</span>}
     </div>
   )
 }

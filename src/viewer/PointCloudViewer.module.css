@@ -7,5 +7,6 @@
 .side[hidden] { display: none; }
 /* Compact (phone-sized) viewer: cards behind the toggle, open over the canvas down to the toolbar's row. */
 .cardsToggle { position: absolute; top: 8px; right: 8px; z-index: 3; padding: 4px 10px; background: var(--pcv-card); color: var(--pcv-text); border: 1px solid var(--pcv-border); border-radius: var(--pcv-radius); font: 12px/1.5 var(--pcv-font); cursor: pointer; }
+/* 44px clears the toggle, 60px the toolbar's one row; the HUD stops short of the toggle (90px). */
 .root[data-compact=true] .side { top: 44px; bottom: 60px; width: min(244px, calc(100% - 16px)); }
 .root[data-compact=true] .hud { right: 90px; overflow: hidden; }

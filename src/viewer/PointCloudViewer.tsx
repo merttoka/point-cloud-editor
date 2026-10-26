@@ -115,7 +115,11 @@ function ViewerInner({ manifestUrl, theme, className, dpr, onApi }: PointCloudVi
   useEffect(() => {
     const el = rootEl.current
     if (!el) return
-    const ro = new ResizeObserver(([e]) => setCompact(e.contentRect.width < COMPACT.width || e.contentRect.height < COMPACT.height))
+    const ro = new ResizeObserver(([e]) => {
+      const c = e.contentRect.width < COMPACT.width || e.contentRect.height < COMPACT.height
+      setCompact(c)
+      if (!c) setCardsOpen(false)   // back to compact later, the cards start folded again
+    })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
