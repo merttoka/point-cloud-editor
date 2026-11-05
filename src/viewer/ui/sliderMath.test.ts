@@ -122,20 +122,41 @@ describe('wheelPerPixel', () => {
 })
 
 describe('wheelScrub', () => {
-  it('steers from the first event of a sideways swipe', () => {
+  it('steers from the first event of a fast sideways swipe', () => {
     expect(wheelScrub(newWheelGesture(), -40, 2, false)).toBe(-40)
   })
-  it('leaves a vertical scroll to the page, even when it drifts sideways later', () => {
+  it('holds a gesture too small to tell, rather than leaving it to the page', () => {
+    // A slow swipe starts like this, and a browser won't let the rest be cancelled once its first event wasn't.
+    const g = newWheelGesture()
+    expect(wheelScrub(g, -1.7, 0, false)).toBe(0)
+    expect(wheelScrub(g, 0, 0.2, false)).toBe(0)
+  })
+  it('applies what it held back once a small gesture sets off sideways', () => {
+    const g = newWheelGesture()
+    expect(wheelScrub(g, -1, 1, false)).toBe(0)
+    expect(wheelScrub(g, -6, 1, false)).toBe(-7)
+    expect(wheelScrub(g, -3, 0, false)).toBe(-3)
+  })
+  it('stays sideways through vertical noise as a swipe sets off', () => {
+    const g = newWheelGesture()
+    expect(wheelScrub(g, 0, 1, false)).toBe(0)
+    expect(wheelScrub(g, -2, 1, false)).toBe(0)
+    expect(wheelScrub(g, -5, 0.5, false)).toBe(-7)
+  })
+  it('leaves a fast vertical scroll to the page from its first event', () => {
+    expect(wheelScrub(newWheelGesture(), 0, 40, false)).toBe(null)
+  })
+  it('holds a slow vertical start, then leaves it to the page', () => {
+    const g = newWheelGesture()
+    expect(wheelScrub(g, 0, 2, false)).toBe(0)
+    expect(wheelScrub(g, 0, 2, false)).toBe(0)
+    expect(wheelScrub(g, 0, 3, false)).toBe(null)
+  })
+  it('leaves a vertical scroll to the page for good, even when it drifts sideways later', () => {
     const g = newWheelGesture()
     expect(wheelScrub(g, 0, 40, false)).toBe(null)
     expect(wheelScrub(g, 60, 2, false)).toBe(null)
     expect(wheelScrub(g, 60, 0, false)).toBe(null)
-  })
-  it('waits while a gesture is too small to tell, then applies what it held back', () => {
-    const g = newWheelGesture()
-    expect(wheelScrub(g, -1, 1, false)).toBe(null)
-    expect(wheelScrub(g, -5, 1, false)).toBe(-6)
-    expect(wheelScrub(g, -3, 0, false)).toBe(-3)
   })
   it('ignores vertical drift once steering', () => {
     const g = newWheelGesture()

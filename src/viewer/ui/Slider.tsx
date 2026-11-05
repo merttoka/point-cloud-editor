@@ -1,4 +1,4 @@
-// Copy of portfolio-web-labs src/components/Slider.tsx (ca4af8b), on a CSS module: keep the two in step by hand.
+// Copy of portfolio-web-labs src/components/Slider.tsx (1b57834), on a CSS module: keep the two in step by hand.
 import { useEffect, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { dragBy, fraction, heading, newWheelGesture, perPixel, snap, ticks, valueAt, wheelPerPixel, wheelPixels, wheelScrub, type WheelGesture } from './sliderMath'
 import styles from './Slider.module.css'
@@ -25,8 +25,9 @@ const HOLD_MS = 400
 const REPEAT_MS = 70
 // After this many repeats a held stepper moves ten steps a tick.
 const FAST_AFTER = 20
-// A scroll this long after the last event is a new gesture, free to set off another way.
-const WHEEL_IDLE_MS = 350
+// A scroll this long after the last event is a new gesture, free to set off another way. Short, as wheel events don't say
+// when a finger lifts, and a swipe right after a scroll must not be taken for more of it.
+const WHEEL_IDLE_MS = 120
 // The ghost shows where a drag is between two steps, once it is this far from the thumb.
 const GHOST_MIN_PX = 2
 
@@ -141,14 +142,15 @@ export default function Slider({ id, value, min, max, step, label, valueText, on
       // deltaMode before the deltas: Firefox reports lines only to a page that asks first.
       const mode = e.deltaMode
       const { value, min, max, disabled } = live.current
-      // With Ctrl or ⌘ it's a pinch or the browser's zoom.
-      if (disabled || e.ctrlKey || e.metaKey) return
+      // With Ctrl or ⌘ it's a pinch or the browser's zoom. Not cancelable, the browser has already given the gesture to the
+      // page: moving the value as well would do both.
+      if (disabled || e.ctrlKey || e.metaKey || !e.cancelable) return
       window.clearTimeout(idle)
       idle = window.setTimeout(() => { gesture = null; settle() }, WHEEL_IDLE_MS)
       gesture ??= { ...newWheelGesture(), raw: value }
       const px = wheelScrub(gesture, wheelPixels(e.deltaX, mode), wheelPixels(e.deltaY, mode), e.altKey)
       if (px === null) return
-      if (e.cancelable) e.preventDefault()
+      e.preventDefault()
       gesture.raw = dragBy(gesture.raw, px, wheelPerPixel(min, max), min, max, e.shiftKey)
       steer(gesture.raw)
     }

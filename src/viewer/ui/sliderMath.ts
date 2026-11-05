@@ -1,5 +1,5 @@
 // Slider arithmetic: step snapping, track geometry, relative drags and which way a touch or scroll is heading.
-// Copy of portfolio-web-labs src/components/sliderMath.ts (ca4af8b). Pure, so it is unit tested (sliderMath.test.ts); the DOM side is Slider.tsx.
+// Copy of portfolio-web-labs src/components/sliderMath.ts (1b57834). Pure, so it is unit tested (sliderMath.test.ts); the DOM side is Slider.tsx.
 
 /** Digits after the decimal point, so values built from steps print and compare cleanly (0.1 + 0.2 → 0.3). */
 export function decimals(n: number): number {
@@ -69,7 +69,7 @@ export function ticks(min: number, max: number, step: number): number[] {
 const WHEEL_FULL_RANGE_PX = 2000
 const WHEEL_LINE_PX = 40
 const WHEEL_PAGE_PX = 800
-const WHEEL_SLOP = 4
+const WHEEL_SLOP = 6
 
 /** A wheel delta in pixels, from WheelEvent.deltaMode's pixels, lines or pages. */
 export function wheelPixels(delta: number, deltaMode: number): number {
@@ -89,9 +89,13 @@ export function newWheelGesture(): WheelGesture {
 }
 
 /**
- * Feeds one wheel event into its gesture. Returns the pixels the slider should travel, or null when the event isn't the
- * slider's: a gesture that sets off vertically is the page's for good, however it drifts, so scrolling a panel past a
- * slider can't move it. Alt claims a vertical wheel, for a mouse with no sideways scroll.
+ * Feeds one wheel event into its gesture. Returns the pixels the slider should travel (0 while it can't yet tell), or
+ * null when the event is the page's: a gesture that sets off vertically is the page's for good, however it drifts, so
+ * scrolling a panel past a slider can't move it. Alt claims a vertical wheel, for a mouse with no sideways scroll.
+ *
+ * A gesture too small to tell is held, not left to the page. A trackpad swipe starts with events of a pixel or two, and a
+ * browser that sees a gesture's first event go uncancelled stops letting the rest be cancelled: the page would then
+ * swipe back, or scroll with the swipe's vertical drift, whatever the slider did.
  */
 export function wheelScrub(g: WheelGesture, dx: number, dy: number, alt: boolean): number | null {
   if (g.way === 'y') return null
@@ -99,7 +103,8 @@ export function wheelScrub(g: WheelGesture, dx: number, dy: number, alt: boolean
   g.y += dy
   if (g.way === null) {
     g.way = alt ? 'x' : heading(g.x, g.y, WHEEL_SLOP)
-    if (g.way !== 'x') return null
+    if (g.way === 'y') return null
+    if (g.way === null) return 0
   }
   const px = alt && Math.abs(g.y) > Math.abs(g.x) ? g.y : g.x
   g.x = 0
