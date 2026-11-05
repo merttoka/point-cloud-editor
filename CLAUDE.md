@@ -3,10 +3,9 @@
 Clean-room WebGPU point cloud viewer/editor (three 0.186 `three/webgpu` + TSL, R3F 9.7, React 19, Vite 8, TS). Public repo, MIT. Portfolio piece for the Lab.
 
 ## Read first
-- `docs/superpowers/specs/2026-09-15-point-cloud-editor-design.md` — master spec; **Amendments A1–A10 win** over per-phase specs.
-- `docs/superpowers/specs/2026-09-15-phase-N-*-design.md` — phase spec (binding authority for that phase).
+- `docs/superpowers/specs/2026-09-15-point-cloud-editor-design.md` — master spec; **its Amendments section wins** over per-phase specs.
+- `docs/superpowers/specs/*-phase-N-*-design.md` — phase spec (binding authority for that phase).
 - `docs/ARCHITECTURE.md` — what exists, measured numbers, three 0.186 rules, `## Deferred` backlog.
-- `docs/superpowers/specs/2026-09-17-spec-review-phases-3-6.md` — drift notes for phases 3–6 vs the shipped code; resolve before writing each plan.
 
 ## Phase workflow
 1. Write the plan from the spec (`superpowers:writing-plans`) → `docs/superpowers/plans/`. Check the spec against current code first (specs were written before phases 1–2 shipped).
