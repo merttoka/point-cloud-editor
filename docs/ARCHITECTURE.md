@@ -26,6 +26,10 @@
 
 `src/viewer/` holds the component; `src/App.tsx` + `src/harness.ts` are the page around it (URL params, `?bench=1` handle, theme messages).
 
+## Panel sliders
+
+`ui/Slider.tsx`, `Slider.module.css` and `sliderMath.ts` are a hand-kept copy of portfolio-web-labs' `src/components/Slider.*`, on a CSS module and `--pcv-*` tokens so `src/viewer/` stays self-contained; the commit each came from is in its header, and the behaviour is documented in that repo's ARCHITECTURE. A hidden native range input keeps keyboard and screen-reader support, so `PointCloudViewer`'s `INPUT` guard still leaves its keys alone. Its name comes from a `<label htmlFor>`, not a wrapping label, which would name the first stepper. `sliderMath.test.ts` is the copy's test, run here too.
+
 ## Deferred
 
 Known gaps carried across phases. Each entry names the owner phase (or "any") and what triggers the fix.

@@ -1,0 +1,200 @@
+/* Copy of portfolio-web-labs src/components/Slider.css (ca4af8b), on --pcv-* tokens: keep the two in step by hand.
+   The lab's slider (Slider.tsx): a visible track and thumb over a hidden native range input that keeps keyboard and
+   screen-reader support. --f is the value as a fraction of the range; the thumb centre stops half a thumb from each end. */
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.slider.disabled {
+  opacity: 0.5;
+}
+
+.rail {
+  --pcv-slider-thumb: 14px;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  cursor: pointer;
+  /* Vertical swipes that start here still scroll the page; Slider.tsx decides on sideways drags itself. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.disabled .rail {
+  cursor: default;
+}
+
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: var(--pcv-border);
+  overflow: hidden;
+}
+
+.fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--pcv-slider-thumb) / 2 + (100% - var(--pcv-slider-thumb)) * var(--f));
+  background: var(--pcv-accent);
+  opacity: 0.45;
+}
+
+/* One at each stop of a coarse step grid; those the fill has reached take its colour. */
+.tick {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--pcv-slider-thumb) / 2 + (100% - var(--pcv-slider-thumb)) * var(--t));
+  width: 1px;
+  height: 7px;
+  margin: -3.5px 0 0 -0.5px;
+  background: var(--pcv-muted);
+}
+
+.tick.passed {
+  background: var(--pcv-accent);
+}
+
+/* Where a drag or scroll has got to between two stops; the thumb moves when it reaches the next. */
+.ghost {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: calc(var(--pcv-slider-thumb) / 2 + (100% - var(--pcv-slider-thumb)) * var(--g, 0));
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--pcv-muted);
+  pointer-events: none;
+}
+
+.hasGhost .ghost {
+  display: block;
+}
+
+.thumb {
+  position: absolute;
+  top: 50%;
+  left: calc((100% - var(--pcv-slider-thumb)) * var(--f));
+  width: var(--pcv-slider-thumb);
+  height: var(--pcv-slider-thumb);
+  margin-top: calc(var(--pcv-slider-thumb) / -2);
+  border-radius: 50%;
+  background: var(--pcv-accent);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.slider:not(.disabled) .rail:hover .thumb,
+.rail.dragging .thumb {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pcv-accent) 25%, transparent);
+}
+
+.input:focus-visible ~ .thumb {
+  box-shadow: 0 0 0 3px var(--pcv-card), 0 0 0 5px var(--pcv-accent);
+}
+
+/* − / + steppers: touch screens only (see the coarse-pointer block below). */
+.step {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--pcv-surface);
+  border: 1px solid var(--pcv-border);
+  color: var(--pcv-text);
+  font-family: var(--pcv-mono);
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.step:not(:disabled):active {
+  border-color: var(--pcv-accent);
+  color: var(--pcv-accent);
+  background: var(--pcv-card);
+}
+
+/* Touch screens: a finger-sized rail and thumb, between − / + steppers. */
+@media (pointer: coarse) {
+  .slider {
+    gap: 0.6rem;
+  }
+  .rail {
+    --pcv-slider-thumb: 26px;
+    height: 44px;
+  }
+  .track {
+    height: 4px;
+    margin-top: -2px;
+  }
+  .tick {
+    height: 10px;
+    margin-top: -5px;
+  }
+  .ghost {
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+  }
+  .slider:not(.disabled) .rail:hover .thumb {
+    transform: none;
+    box-shadow: none;
+  }
+  .rail.dragging .thumb {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--pcv-accent) 25%, transparent);
+  }
+  .step {
+    display: inline-flex;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    font-size: 1.15rem;
+  }
+}
+
+/* Forced colours (Windows High Contrast) drop backgrounds and shadows: the slider's parts take system colours, and focus
+   an outline, or the slider and its focus ring vanish. */
+@media (forced-colors: active) {
+  .track,
+  .fill,
+  .tick,
+  .ghost,
+  .thumb { forced-color-adjust: none; }
+  .track { background: GrayText; }
+  .fill { background: Highlight; opacity: 1; }
+  .tick { background: GrayText; }
+  .tick.passed { background: Highlight; }
+  .ghost { background: GrayText; }
+  .thumb { background: ButtonText; }
+  .input:focus-visible ~ .thumb { outline: 2px solid Highlight; outline-offset: 2px; }
+}
