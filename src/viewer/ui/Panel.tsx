@@ -1,11 +1,13 @@
-import { Fragment } from 'react'
+import { Fragment, useId } from 'react'
 import { useStore, useViewerStore, type ColorMode, type Colormap, type EdlState, type Shading } from '../state/store'
 import type { ViewerApi } from '../render/Scene'
 import { BENCH_CAP, spacingOf } from '../compute/params'
 import { compareResults } from '../compute/verify'
+import Slider from './Slider'
 import styles from './Panel.module.css'
 
 export function Panel({ api }: { api: ViewerApi }) {
+  const id = useId()
   const store = useViewerStore()
   const manifest = useStore((s) => s.manifest)
   const status = useStore((s) => s.status)
@@ -49,10 +51,10 @@ export function Panel({ api }: { api: ViewerApi }) {
       <div className={styles.muted}>{loaded.points.toLocaleString()} / {total.toLocaleString()} pts · {loaded.chunks}/{manifest?.chunks.length ?? 0} chunks</div>
       <div className={styles.bar}><div className={styles.fill} style={{ width: `${frac * 100}%` }} /></div>
       {error && <div className={styles.muted}>{error}</div>}
-      <label className={styles.row}><span>Budget</span><span>{budgetPct}%</span>
-        <input type="range" min={0} max={100} step={1} value={budgetPct} onChange={(e) => store.set({ budget: Number(e.target.value) / 100 })} /></label>
-      <label className={styles.row}><span>Point size</span><span>{pointSize}px</span>
-        <input type="range" min={1} max={8} step={1} value={pointSize} onChange={(e) => store.set({ pointSize: Number(e.target.value) })} /></label>
+      <div className={styles.row}><label htmlFor={`${id}-budget`}>Budget</label><span>{budgetPct}%</span>
+        <Slider id={`${id}-budget`} min={0} max={100} step={1} value={budgetPct} label="budget" valueText={`${budgetPct}%`} onChange={(v) => store.set({ budget: v / 100 })} /></div>
+      <div className={styles.row}><label htmlFor={`${id}-point-size`}>Point size</label><span>{pointSize}px</span>
+        <Slider id={`${id}-point-size`} min={1} max={8} step={1} value={pointSize} label="point size" valueText={`${pointSize} pixels`} onChange={(v) => store.set({ pointSize: v })} /></div>
       <label className={styles.row}><span>Colour</span>
         <select value={colorMode} onChange={(e) => store.set({ colorMode: e.target.value as ColorMode })}>
           <option value="height">Height</option><option value="intensity">Intensity</option><option value="class">Classification</option>
@@ -68,17 +70,17 @@ export function Panel({ api }: { api: ViewerApi }) {
         <div className={styles.groupTitle}>Lighting</div>
         <label className={styles.row}><span>EDL</span>
           <input type="checkbox" checked={edl.enabled} onChange={(e) => setEdl({ enabled: e.target.checked })} /></label>
-        <label className={styles.row}><span>Radius</span><span>{edl.radiusPx.toFixed(1)}px</span>
-          <input type="range" min={1} max={4} step={0.5} value={edl.radiusPx} disabled={!edl.enabled} onChange={(e) => setEdl({ radiusPx: Number(e.target.value) })} /></label>
-        <label className={styles.row}><span>Strength</span><span>{edl.strength.toFixed(1)}</span>
-          <input type="range" min={0} max={4} step={0.1} value={edl.strength} disabled={!edl.enabled} onChange={(e) => setEdl({ strength: Number(e.target.value) })} /></label>
+        <div className={styles.row}><label htmlFor={`${id}-edl-radius`}>Radius</label><span>{edl.radiusPx.toFixed(1)}px</span>
+          <Slider id={`${id}-edl-radius`} min={1} max={4} step={0.5} value={edl.radiusPx} disabled={!edl.enabled} label="lighting radius" valueText={`${edl.radiusPx.toFixed(1)} pixels`} onChange={(v) => setEdl({ radiusPx: v })} /></div>
+        <div className={styles.row}><label htmlFor={`${id}-edl-strength`}>Strength</label><span>{edl.strength.toFixed(1)}</span>
+          <Slider id={`${id}-edl-strength`} min={0} max={4} step={0.1} value={edl.strength} disabled={!edl.enabled} label="lighting strength" valueText={edl.strength.toFixed(1)} onChange={(v) => setEdl({ strength: v })} /></div>
       </div>
       <div className={styles.group}>
         <div className={styles.groupTitle}>Compute</div>
         <div className={styles.muted}>All {total.toLocaleString()} points, independent of budget.</div>
-        <label className={styles.row}><span>Radius</span><span>{compute.radiusMul.toFixed(1)}× = {radius.toFixed(2)} m</span>
-          <input type="range" min={2} max={10} step={0.5} value={compute.radiusMul} disabled={compute.status === 'running'}
-            onChange={(e) => store.set({ compute: { ...store.get().compute, radiusMul: Number(e.target.value) } })} /></label>
+        <div className={styles.row}><label htmlFor={`${id}-compute-radius`}>Radius</label><span>{compute.radiusMul.toFixed(1)}× = {radius.toFixed(2)} m</span>
+          <Slider id={`${id}-compute-radius`} min={2} max={10} step={0.5} value={compute.radiusMul} disabled={compute.status === 'running'} label="compute radius" valueText={`${compute.radiusMul.toFixed(1)} times, ${radius.toFixed(2)} metres`}
+            onChange={(v) => store.set({ compute: { ...store.get().compute, radiusMul: v } })} /></div>
         <button className={styles.button} disabled={!canBuild} onClick={() => api.build?.(radius)}>
           {compute.status === 'running' ? 'Building…' : compute.status === 'built' && compute.builtRadius === radius ? 'Built' : 'Build normals + AO'}
         </button>
